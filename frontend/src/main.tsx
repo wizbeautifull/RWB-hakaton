@@ -58,6 +58,7 @@ function App() {
   const [points, products] = mode === 'demo' ? [demoPoints, demoProducts] : catalog;
   const reload = () => setRevision(value => value + 1);
   const active = orderId ? '/orders' : pathname;
+  const isCheckout = pathname === '/';
   let page;
   if (pathname === '/pvz') page = <Pvz key={path + mode} mode={mode} points={points} initialPoint={params.get('point') ?? ''} reload={reload}/>;
   else if (pathname === '/seller') page = <Seller key={mode} mode={mode} points={points}/>;
@@ -72,7 +73,7 @@ function App() {
       event.preventDefault();
       document.getElementById('content')?.focus();
     }}>К содержанию</a>
-    <header><div className="masthead"><div className="shell masthead__inner">
+    <header className={isCheckout ? 'checkout-header' : undefined}><div className="masthead"><div className="shell masthead__inner">
       <a className="masthead__brand" href="#/"><span className="masthead__mark"><GitFork size={24} strokeWidth={2.3}/></span><span>Wildberries <small>Mesh</small></span></a>
       <div className="masthead__context"><Boxes size={17}/><span>Доставка между ПВЗ</span></div>
       <button className="connection" title="Проверить подключение FastAPI" aria-label="Проверить подключение FastAPI" onClick={connect} disabled={mode === 'checking'}>
@@ -82,7 +83,7 @@ function App() {
     <div className="navigation"><nav className="shell navigation__inner" aria-label="Разделы проекта">{nav.map(({ path, caption, icon: Icon }) =>
       <a className="navigation__link" href={'#' + path} aria-current={active === path ? 'page' : undefined} key={path}><Icon size={18}/>{caption}</a>)}</nav></div>
     </header>
-    <main className="workspace" id="content" tabIndex={-1}><section className="workspace__page"><div className="shell wrap">
+    <main className={isCheckout ? 'workspace checkout-workspace' : 'workspace'} id="content" tabIndex={-1}><section className="workspace__page"><div className="shell wrap">
       <ErrorMessage error={catalogError}/>
       {mode === 'checking' ? <Empty>Проверяем подключение к серверу…</Empty> : page}
     </div></section></main>

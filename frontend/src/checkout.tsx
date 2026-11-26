@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowRight, CalendarDays, ChevronDown, MapPin, Package, ShoppingBag, Sparkles, Usb } from 'lucide-react';
+import { ArrowRight, CalendarDays, ChevronDown, MapPin, Minus, Package, Plus, ShoppingBag, Sparkles, Store, Truck } from 'lucide-react';
 import { api } from './api';
 import type { CheckoutDraft, CheckoutOptions, Order, Point, Product, Route } from './api';
 import { demoOrder } from './demo';
@@ -17,16 +17,26 @@ function choices(options: CheckoutOptions): Selection[] {
   return entries;
 }
 
+function ProductThumbnail({ sku }: { sku: string }) {
+  return <span className="checkout-photo" aria-hidden="true">
+    <Package size={28} strokeWidth={1.5}/>
+    {sku === 'CABLE' && <img alt="" src={import.meta.env.BASE_URL + 'usb-c-cable.png'}
+      onError={event => { event.currentTarget.hidden = true; }}/>}
+  </span>;
+}
+
 export function Checkout({ mode, points, products }: { mode: Mode; points: Point[]; products: Product[] }) {
   const [pickup, setPickup] = useState('');
   const [sku, setSku] = useState('');
   const [club, setClub] = useState(false);
+  const [quantity, setQuantity] = useState('1');
   const [order, setOrder] = useState<Order>();
   const [quote, setQuote] = useState<{ draft: CheckoutDraft; options: CheckoutOptions }>();
   const [selectedId, setSelectedId] = useState('');
   const [deadline] = useState(() => moscowInput(48));
   const selectedPickup = points.some(point => point.id === pickup) ? pickup : points.at(-1)?.id ?? '';
   const selectedSku = products.some(product => product.sku === sku) ? sku : products[0]?.sku ?? '';
+  const units = Number(quantity) || 0;
   const quoteRequest = useSubmit(async data => {
     confirm.clearError();
     const draft: CheckoutDraft = {
@@ -62,36 +72,51 @@ export function Checkout({ mode, points, products }: { mode: Mode; points: Point
     setSelectedId('');
     setOrder(undefined);
   }
+  function changeQuantity(delta: number) {
+    setQuantity(String(Math.min(1_000_000, Math.max(1, units + delta))));
+    invalidateQuote();
+  }
   const sample = mode === 'demo' && !order && selectedSku === demoOrder.sku && selectedPickup === demoOrder.pickup_point_id;
   return <>
     <Heading crumb="Покупатель" title="Оформление заказа" description="Выберите товар и ПВЗ для доставки, затем проверьте, где его можно забрать сегодня."
       extra={<span className="location"><MapPin size={17}/> Москва</span>}/>
     <div className="checkout hero" data-enter>
       <div className="checkout__main">
-        <form id="checkout-form" className="card checkout-form" onSubmit={quoteRequest.submit} onChange={invalidateQuote}>
-          <fieldset className="checkout-fields" disabled={confirm.pending || quoteRequest.pending}>
-          <div className="card__heading"><span className="card__icon"><ShoppingBag size={21}/></span><h2>Товар в заказе</h2></div>
-          <div className="checkout-form__product">
-            <div className="product-art" aria-hidden="true"><Usb size={42} strokeWidth={1.4}/></div>
-            <Field label="Товар"><select required value={selectedSku} onChange={e => setSku(e.target.value)}>
-              {!products.length && <option value="">Каталог пуст</option>}
-              {products.map(product => <option key={product.sku} value={product.sku}>{productName(product.sku)}</option>)}
-            </select></Field>
-            <Field label="Количество"><input name="quantity" type="number" min="1" max="1000000" defaultValue="1" required/></Field>
-          </div>
-          <div className="checkout-form__delivery">
-            <div className="card__heading"><span className="card__icon"><MapPin size={21}/></span><h2>Получение заказа</h2></div>
-            <Field label="Пункт выдачи"><select required value={selectedPickup} onChange={e => setPickup(e.target.value)}>
-              {!points.length && <option value="">Нет зарегистрированных ПВЗ</option>}
-              {points.map(point => <option key={point.id} value={point.id}>{point.name}</option>)}
-            </select></Field>
-            <label className="club"><span className="club__icon"><Sparkles size={19}/></span><span><strong>WB Клуб</strong><small>Открывает проверку локальной доставки</small></span>
-              <input className="club__switch" type="checkbox" role="switch" checked={club} onChange={e => setClub(e.target.checked)}/>
-            </label>
-            <details className="deadline"><summary><CalendarDays size={17}/> Крайний срок для расчёта <ChevronDown size={16}/></summary>
-              <Field label="Дата и время · Москва"><input name="promised_by" type="datetime-local" defaultValue={deadline} required/></Field>
-            </details>
-          </div>
+        <form id="checkout-form" className="checkout-form" onSubmit={quoteRequest.submit} onChange={invalidateQuote}>
+          <fieldset className="checkout-fields checkout-form__sections" disabled={confirm.pending || quoteRequest.pending}>
+            <section className="card checkout-product">
+              <div className="card__heading"><span className="card__icon"><ShoppingBag size={21}/></span><h2>Товар в заказе</h2></div>
+              <div className="checkout-product__body">
+                <ProductThumbnail sku={selectedSku}/>
+                <div className="checkout-product__fields">
+                  <Field label="Товар"><select required value={selectedSku} onChange={e => setSku(e.target.value)}>
+                    {!products.length && <option value="">Каталог пуст</option>}
+                    {products.map(product => <option key={product.sku} value={product.sku}>{productName(product.sku)}</option>)}
+                  </select></Field>
+                  <div className="field">
+                    <label className="field__label" htmlFor="checkout-quantity">Количество</label>
+                    <div className="checkout-quantity">
+                      <button type="button" aria-label="Уменьшить количество" disabled={units <= 1} onClick={() => changeQuantity(-1)}><Minus size={17}/></button>
+                      <input id="checkout-quantity" name="quantity" type="number" min="1" max="1000000" value={quantity} onChange={e => setQuantity(e.target.value)} required/>
+                      <button type="button" aria-label="Увеличить количество" disabled={units >= 1_000_000} onClick={() => changeQuantity(1)}><Plus size={17}/></button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+            <section className="card checkout-delivery">
+              <div className="card__heading"><span className="card__icon"><MapPin size={21}/></span><h2>Получение заказа</h2></div>
+              <Field label="Пункт выдачи"><select required value={selectedPickup} onChange={e => setPickup(e.target.value)}>
+                {!points.length && <option value="">Нет зарегистрированных ПВЗ</option>}
+                {points.map(point => <option key={point.id} value={point.id}>{point.name}</option>)}
+              </select></Field>
+              <label className="club"><span className="club__icon"><Sparkles size={19}/></span><span><strong>WB Клуб</strong><small>Открывает проверку локальной доставки</small></span>
+                <input className="club__switch" type="checkbox" role="switch" checked={club} onChange={e => setClub(e.target.checked)}/>
+              </label>
+              <details className="deadline"><summary><CalendarDays size={17}/> Крайний срок для расчёта <ChevronDown size={16}/></summary>
+                <Field label="Дата и время · Москва"><input name="promised_by" type="datetime-local" defaultValue={deadline} required/></Field>
+              </details>
+            </section>
           </fieldset>
         </form>
         {order && <div className="card" role="status">
@@ -100,9 +125,13 @@ export function Checkout({ mode, points, products }: { mode: Mode; points: Point
         </div>}
       </div>
       <aside className="checkout__aside">
-        <RouteMap route={order?.route ?? selection?.route ?? (sample ? demoOrder.route : undefined)} points={points} pickup={selectedPickup} sample={sample}/>
         <div className="card checkout-total">
-          <div className="card__heading"><span className="card__icon"><Package size={21}/></span><h2>Способ получения</h2></div>
+          <h2>Ваш заказ</h2>
+          {selectedSku && <div className="checkout-total__product">
+            <ProductThumbnail sku={selectedSku}/>
+            <div><strong>{productName(selectedSku)}</strong><small>{units} шт.</small></div>
+          </div>}
+          <div className="checkout-total__row"><span>Пункт выдачи</span><strong>{pointName(points, order?.pickup_point_id ?? selection?.route.pickup_point_id ?? selectedPickup)}</strong></div>
           {order && <div className="checkout-total__row"><span>Доплата за ускорение</span><strong>{money(order.buyer_acceleration_fee_kopecks ?? 0)}</strong></div>}
           <ErrorMessage error={quoteRequest.error}/>
           {quote && <form className="form-stack" onSubmit={confirm.submit}>
@@ -113,6 +142,7 @@ export function Checkout({ mode, points, products }: { mode: Mode; points: Point
                   <strong>{entry.kind === 'shelf_today' ? 'Забрать сегодня с полки' : 'Дождаться доставки в ПВЗ'}</strong>
                   <small>{pointName(points, entry.route.pickup_point_id)} · {dateTime(entry.route.ready_at)} МСК</small>
                 </span>
+                {entry.kind === 'shelf_today' ? <Store size={18} aria-hidden="true"/> : <Truck size={18} aria-hidden="true"/>}
               </label>)}
             </fieldset>}
             {!quote.options.shelf_today.length && <p className="muted">Самовывоз сегодня недоступен. Проверьте другой товар или количество.</p>}
@@ -130,6 +160,7 @@ export function Checkout({ mode, points, products }: { mode: Mode; points: Point
           {mode === 'demo' && <p className="checkout-total__note">Для оформления подключите FastAPI.</p>}
           {mode === 'live' && (!points.length || !products.length) && <p className="checkout-total__note"><a href="#/pvz">Зарегистрируйте ПВЗ и примите партию</a>, чтобы оформить заказ.</p>}
         </div>
+        {(order?.route || selection || sample) && <RouteMap route={order?.route ?? selection?.route ?? demoOrder.route} points={points} pickup={selectedPickup} sample={sample}/>}
       </aside>
     </div>
   </>;
