@@ -27,6 +27,19 @@ const moscow: Coordinates = [37.62, 55.75];
 const coords = ({ longitude, latitude }: PointLocation): Coordinates => [longitude, latitude];
 let yandexLoading: Promise<YandexApi> | undefined;
 
+function markerTitle(point: MapPoint) {
+  return [point.name, point.location.address,
+    point.available === undefined ? undefined : point.available ? 'Подходит' : 'Мало места',
+  ].filter(Boolean).join(' · ');
+}
+
+function mercatorLatitude(latitude: number) {
+  const radians = Math.min(85.084, Math.max(-85.084, latitude)) * Math.PI / 180;
+  const sine = Math.sin(radians);
+  const eccentricity = 0.0818191908426;
+  return Math.atanh(sine) - eccentricity * Math.atanh(eccentricity * sine);
+}
+
 function loadYandex(apiKey: string) {
   if (yandexLoading) return yandexLoading;
   yandexLoading = new Promise<YandexApi>((resolve, reject) => {
@@ -57,17 +70,41 @@ export function yandexUrl(location: PointLocation) {
   return 'https://yandex.ru/maps/?' + new URLSearchParams({ ll: pair, pt: pair, z: '16' });
 }
 
-function MapWidget({ points, selectedId, focusSelected }: Pick<MapProps, 'points' | 'selectedId' | 'focusSelected'>) {
+function MapWidget({ points, selectedId, focusSelected, onSelect }: MapProps) {
+  const [exploring, setExploring] = useState(false);
   const selected = points.find(point => point.id === selectedId);
   const focus = focusSelected ? selected : undefined;
   const center = coords((focus ?? points[0]).location);
-  const visible = selected ? [selected, ...points.filter(point => point.id !== selectedId)] : points;
+  const zoom = focus ? 15 : 12;
+  const visible = (selected ? [selected, ...points.filter(point => point.id !== selectedId)] : points).slice(0, 30);
   const query = new URLSearchParams({
-    ll: center.join(','), z: focus ? '15' : '12',
-    pt: visible.slice(0, 30).map(point => `${coords(point.location).join(',')},${point.id === selectedId ? 'pm2vvl' : point.available === false ? 'pm2grm' : 'pm2vvm'}`).join('~'),
+    ll: center.join(','), z: String(zoom),
+    pt: visible.map(point => coords(point.location).join(',')).join('~'),
   });
-  return <iframe className="supply-map__surface" title="Яндекс Карты · ПВЗ Wildberries"
-    src={'https://yandex.ru/map-widget/v1/?' + query} loading="lazy"/>;
+  const worldSize = 256 * 2 ** zoom;
+  const centerY = mercatorLatitude(center[1]);
+  return <>
+    <div className="supply-map__preview" role="region" aria-label="Метки ПВЗ">
+      <iframe key={String(exploring)} className="supply-map__surface" title="Яндекс Карты · ПВЗ Wildberries"
+        src={'https://yandex.ru/map-widget/v1/?' + query} loading="lazy" inert={!exploring}/>
+      {!exploring && visible.map(point => {
+        const longitudeDelta = ((point.location.longitude - center[0] + 540) % 360) - 180;
+        const x = worldSize * longitudeDelta / 360;
+        const y = worldSize * (centerY - mercatorLatitude(point.location.latitude)) / (2 * Math.PI);
+        // Position each label beside the head of the widget's pin in the fixed viewport.
+        const style = { left: `calc(50% + ${x + 17}px)`, top: `calc(50% + ${y - 35}px)` };
+        const title = markerTitle(point);
+        return <button key={point.id} type="button" className="supply-map__label" style={style} title={title}
+          aria-label={title} aria-pressed={point.id === selectedId} disabled={point.available === false}
+          tabIndex={-1} onClick={() => onSelect(point.id)}>{point.id}</button>;
+      })}
+    </div>
+    <div className="supply-map__tools">
+      <button type="button" className="button button--secondary" onClick={() => setExploring(value => !value)}>
+        {exploring ? 'Показать буквы ПВЗ' : 'Перемещать карту'}
+      </button>
+    </div>
+  </>;
 }
 
 function InteractiveMap({ points, selectedId, focusSelected, onSelect, apiKey }: MapProps & { apiKey: string }) {
@@ -124,7 +161,7 @@ function InteractiveMap({ points, selectedId, focusSelected, onSelect, apiKey }:
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'supply-map__marker';
-        button.textContent = 'WB';
+        button.textContent = point.id;
         const marker = new api.YMapMarker(props, button);
         map.addChild(marker);
         entry = { marker, button };
@@ -133,9 +170,7 @@ function InteractiveMap({ points, selectedId, focusSelected, onSelect, apiKey }:
         entry.marker.update(props);
       }
       entry.button.disabled = point.available === false;
-      entry.button.title = [point.name, point.location.address,
-        point.available === undefined ? undefined : point.available ? 'Подходит' : 'Мало места',
-      ].filter(Boolean).join(' · ');
+      entry.button.title = markerTitle(point);
       entry.button.setAttribute('aria-label', entry.button.title);
       entry.button.setAttribute('aria-pressed', String(pressed));
       entry.button.onclick = () => onSelect(point.id);
@@ -146,7 +181,7 @@ function InteractiveMap({ points, selectedId, focusSelected, onSelect, apiKey }:
     }
   }, [instance, points, selectedId, onSelect]);
 
-  if (failed) return <MapWidget points={points} selectedId={selectedId} focusSelected={focusSelected}/>;
+  if (failed) return <MapWidget points={points} selectedId={selectedId} focusSelected={focusSelected} onSelect={onSelect}/>;
   return <>
     <div className="supply-map__surface" ref={container} role="region" aria-label="Яндекс Карты · ПВЗ Wildberries"/>
     {!instance && <span className="supply-map__loading" role="status">Загружаем Яндекс Карты…</span>}
@@ -160,6 +195,6 @@ export function PickupMap({ mode, points, selectedId, focusSelected = true, onSe
   if (!points.length) return <div className="supply-map supply-map--empty"><Empty>На карте пока нет точек. Выберите ПВЗ из списка.</Empty></div>;
   return <div className="supply-map">
     {apiKey ? <InteractiveMap key={apiKey} points={points} selectedId={selectedId} focusSelected={focusSelected} onSelect={onSelect} apiKey={apiKey}/>
-      : <MapWidget points={points} selectedId={selectedId} focusSelected={focusSelected}/>}
+      : <MapWidget points={points} selectedId={selectedId} focusSelected={focusSelected} onSelect={onSelect}/>}
   </div>;
 }
