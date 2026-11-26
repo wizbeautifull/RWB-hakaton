@@ -78,7 +78,14 @@ class PilotRouting:
 
     def pilot_trip(self, request: RoutingRequest, source: PickupPoint) -> DirectTrip:
         plan = self.schedule
-        earliest = request.requested_at + timedelta(minutes=source.pack_minutes + source.load_minutes)
+        now = request.requested_at.astimezone(timezone.utc)
+        packed_at = now + timedelta(minutes=source.pack_minutes)
+        midnight = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        if source.pvz_id not in plan.points and packed_at > midnight:
+            packed_at = midnight + timedelta(minutes=source.pack_minutes)
+        earliest = packed_at + timedelta(minutes=source.load_minutes)
+        if source.pvz_id not in plan.points and packed_at < midnight < earliest:
+            earliest = midnight + timedelta(minutes=source.load_minutes)
         interval = plan.departure_interval_minutes * 60
         departure = datetime.fromtimestamp((int(earliest.timestamp()) // interval + 1) * interval, timezone.utc)
         key = resource_key(source.pvz_id, request.pickup_point_id, departure.isoformat())

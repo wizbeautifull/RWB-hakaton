@@ -35,7 +35,7 @@ export function Seller({ mode, points }: { mode: Mode; points: Point[] }) {
       </div>
       <div className="card"><h2>Прибыль по заказам</h2>
         <p className="muted">Расчёт по учебным тарифам. До выдачи показана прогнозная прибыль, после возврата учтён его исход.</p>
-        {orderMargins.length ? <div className="table-wrap"><table className="data-table">
+        {orderMargins.length ? <div className="table-wrap" role="region" tabIndex={0} aria-label="Прибыль по заказам"><table className="data-table">
           <thead><tr>{['Заказ', 'ПВЗ', 'Выручка', 'Товар', 'Комиссия', 'Доставка', 'Хранение', 'Возврат', 'Прибыль'].map(name =>
             <th scope="col" key={name}>{name}</th>)}</tr></thead>
           <tbody>{orderMargins.map(row => <tr key={row.order_id}>
@@ -117,7 +117,7 @@ export function Jury({ mode, points, initialOrder }: { mode: Mode; points: Point
                 <Warehouse size={23}/><span>Через хаб</span><strong>{money(quote.hub_kopecks)}</strong></div>
             </div>
             <p className="comparison__result"><ArrowDownRight size={19}/>{routeNames[quote.selected_route]} при загрузке {quote.trip_orders}.</p>
-            <p className="muted">Доплата за долгое хранение {money(quote.direct_storage_extra_kopecks)}, ожидаемые расходы на возврат {money(quote.expected_return_kopecks)} на заказ.</p>
+            <p className="muted">Дополнительные расходы WB на хранение {money(quote.direct_storage_extra_kopecks)}, ожидаемые расходы на возврат {money(quote.expected_return_kopecks)} на заказ.</p>
           </div>}
           {mode === 'demo' && <Empty>Подключите API для расчёта сценария.</Empty>}
         </div>
@@ -139,7 +139,7 @@ export function Jury({ mode, points, initialOrder }: { mode: Mode; points: Point
           <Field label="Заказ"><select value={selected?.id ?? ''} onChange={event => setOrderId(event.target.value)}>{orders.data.map(order => <option key={order.id} value={order.id}>{shortId(order.id)} · {order.sku}</option>)}</select></Field>
           {route ? <>
             <p><strong>{routeNames[route.route_type]}.</strong> {route.reason}</p>
-            <div className="table-wrap"><table className="data-table"><thead><tr><th>Вариант</th><th>Стоимость</th><th>Готовность · МСК</th><th>Решение</th></tr></thead>
+            <div className="table-wrap" role="region" tabIndex={0} aria-label="Варианты маршрута"><table className="data-table"><thead><tr><th>Вариант</th><th>Стоимость</th><th>Готовность · МСК</th><th>Решение</th></tr></thead>
               <tbody><tr><td>{routeNames[route.route_type]}</td><td>{money(route.estimated_unit_cost_kopecks)}</td><td>{dateTime(route.ready_at)}</td><td><span className="tag tag--green">Выбран</span></td></tr>
                 {route.evaluations.filter(item => item.quote && item.status !== 'selected').map((item, index) => <tr key={index}><td>{routeNames[item.route_type]}</td><td>{money(item.quote!.cost_kopecks)}</td><td>{dateTime(item.quote!.ready_at)}</td><td>{item.status === 'rejected' ? 'Недоступен' : 'Альтернатива'}</td></tr>)}
               </tbody></table></div>

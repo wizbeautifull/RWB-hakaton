@@ -1,5 +1,5 @@
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from threading import Barrier, Lock
 from uuid import uuid4
 
@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 
 from backend.app.config import load_config
-from backend.app.contracts import utc_now
+from backend.app.contracts import RoutingRequest, RoutingStock, utc_now
 from backend.app.integrations import PilotRouting
 from backend.app.main import create_app
 from backend.app.routing.models import DirectTrip, PickupPoint, Window
@@ -450,6 +450,20 @@ def test_aged_stock_changes_routing_and_explains_cost(api):
     assert direct["quote"]["cost_kopecks"] == 27_000
     local = create(api, "A")["route"]
     assert (local["route_type"], local["reason_code"]) == ("hub", "shelf_more_expensive")
+
+
+@pytest.mark.parametrize("minute", [25, 30, 50])
+def test_pilot_trip_accounts_for_midnight_window_boundary(minute):
+    config = load_config()
+    now = datetime(2026, 11, 26, 23, minute, tzinfo=timezone.utc)
+    request = RoutingRequest(
+        sku="CABLE", quantity=1, unit_volume_cm3=100, wb_club=True, pickup_point_id="B",
+        pickup_free_volume_cm3=950, promised_by=now + timedelta(hours=4), requested_at=now,
+        stock=[RoutingStock(point_id="A", available=1)],
+    )
+    route = PilotRouting(config.demo_routing, config.logistics_pricing).choose(request)
+    assert route.route_type == "direct"
+    assert route.ready_at < request.promised_by
 
 
 def test_district_comparison_and_risk_sensitivity(api):

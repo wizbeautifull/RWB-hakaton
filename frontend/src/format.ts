@@ -12,7 +12,8 @@ export const actionNames: Record<ActionType, string> = {
 };
 export const operationNames: Record<string, string> = {
   ...actionNames, intake: 'Приёмка партии', storage: 'Хранение', handover: 'Передача курьеру',
-  transfer_receive: 'Приёмка в ПВЗ', return: 'Возврат', hub_delivery: 'Доставка хаба',
+  transfer_receive: 'Приёмка в ПВЗ', return: 'Возврат', batch_received: 'Приёмка партии',
+  order_created: 'Оформление заказа',
 };
 const rub = new Intl.NumberFormat('ru-RU', { style: 'currency', currency: 'RUB', minimumFractionDigits: 0, maximumFractionDigits: 2 });
 const dates = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Europe/Moscow' });

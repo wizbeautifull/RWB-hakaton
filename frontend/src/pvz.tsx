@@ -15,7 +15,7 @@ const stockActions: Record<StockAction, string> = {
 };
 export function StockTable({ rows, points, onSelect }: { rows: Stock[]; points: Point[]; onSelect?: (row: Stock) => void }) {
   if (!rows.length) return <Empty>Нет партий по выбранным фильтрам.</Empty>;
-  return <div className="table-wrap"><table className="data-table"><thead><tr>
+  return <div className="table-wrap" role="region" tabIndex={0} aria-label="Остатки по партиям"><table className="data-table"><thead><tr>
     <th scope="col">Товар / партия</th><th scope="col">ПВЗ</th><th scope="col">Доступно</th><th scope="col">Резерв</th><th scope="col">В пути</th><th scope="col">Готово</th><th scope="col">Спорные</th><th scope="col">Брак</th><th scope="col">Хранение</th>{onSelect && <th scope="col">Действия</th>}
   </tr></thead><tbody>{rows.map(row => <tr key={row.point_id + '/' + row.batch_id}>
     <td><strong>{productName(row.sku)}</strong><small>{row.batch_id}</small></td><td>{pointName(points, row.point_id)}</td>

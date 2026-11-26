@@ -68,6 +68,7 @@ test('Wildberries Mesh processes a live order and shows the economics', async ({
   await expect(page.getByText(/^45[\s\u00a0]*₽$/)).toBeVisible();
 
   await nav.getByRole('link', { name: 'ПВЗ', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Рабочее место ПВЗ' })).toBeVisible();
   await page.getByLabel('Рабочая точка').selectOption('B');
   await page.getByRole('button', { name: 'Начисления', exact: true }).click();
   await expect(page.getByText('Прибыль ПВЗ', { exact: true })).toBeVisible();
@@ -77,6 +78,19 @@ test('Wildberries Mesh processes a live order and shows the economics', async ({
   await page.getByRole('button', { name: 'Показать отчёт' }).click();
   await expect(page.getByRole('columnheader', { name: 'Прибыль' })).toBeVisible();
   await expect(page.getByText(/^107,5[\s\u00a0]*₽$/)).toBeVisible();
+
+  await nav.getByRole('link', { name: 'Оформление' }).click();
+  await expect(page.getByRole('heading', { name: 'Оформление заказа' })).toBeVisible();
+  await page.getByLabel('Пункт выдачи').selectOption('B');
+  await expect(page.getByRole('switch', { name: /WB Клуб/ })).not.toBeChecked();
+  await page.getByRole('button', { name: 'Оформить заказ' }).click();
+  await page.getByRole('link', { name: 'Открыть заказ' }).click();
+  await expect(page.getByText('Через хаб', { exact: true }).first()).toBeVisible();
+  const hubCode = await page.locator('code').innerText();
+  await perform(page, 'Подтвердить доставку хаба', hubCode);
+  await perform(page, 'Выдать заказ', hubCode);
+  await perform(page, 'Принять возврат с браком', hubCode);
+  await expect(page.getByText('Возвращён', { exact: true }).first()).toBeVisible();
 
   await nav.getByRole('link', { name: 'Для жюри' }).click();
   await expect(page.getByText('Экономия 7,67%', { exact: true })).toBeVisible();
