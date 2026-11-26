@@ -91,6 +91,12 @@ test('Wildberries Mesh processes a live order and shows the economics', async ({
   await expect(page.getByRole('switch', { name: /WB Клуб/ })).not.toBeChecked();
   await placeDelivery(page);
   await expect(page.getByText('Через хаб', { exact: true }).first()).toBeVisible();
+  const desktopViewport = page.viewportSize()!;
+  const routeStops = page.getByRole('list', { name: 'Точки маршрута' });
+  await expect(routeStops.getByRole('listitem')).toHaveText(['Отправление', 'Хаб', 'ПВЗ Б']);
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await routeStops.evaluate(track => track.scrollWidth <= track.clientWidth)).toBe(true);
+  await page.setViewportSize(desktopViewport);
   const hubCode = await page.locator('code').innerText();
   await perform(page, 'Подтвердить доставку хаба', hubCode);
   await perform(page, 'Выдать заказ', hubCode);

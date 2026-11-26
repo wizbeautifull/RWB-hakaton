@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
-import { ArrowLeft, ArrowRight, CircleAlert, Clock3, GitFork, MapPin, PackageCheck, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CircleAlert, Clock3, GitFork, MapPin, Package, PackageCheck, Warehouse, X } from 'lucide-react';
 import type { Order, Point, Route } from './api';
 import { ApiError } from './api';
 import { dateTime, pointName, routeNames, statusNames } from './format';
@@ -59,17 +59,36 @@ export function Status({ value }: { value: string }) {
 }
 export function RouteMap({ route, points, pickup, sample = false }: { route?: Route | null; points: Point[]; pickup?: string; sample?: boolean }) {
   const type = route?.route_type;
-  const source = type === 'hub' ? 'Хаб' : pointName(points, route?.source_point_id);
-  const destination = pointName(points, route?.pickup_point_id ?? pickup);
+  const destinationId = route?.pickup_point_id ?? pickup;
+  const stops = [{
+    id: 'destination', label: destinationId ? pointName(points, destinationId) : 'Выберите ПВЗ',
+    marker: <MapPin size={17}/>, end: Boolean(type),
+  }];
+  if (type === 'hub') {
+    stops.unshift(
+      { id: 'dispatch', label: 'Отправление', marker: <Package size={17}/>, end: false },
+      { id: 'hub', label: 'Хаб', marker: <Warehouse size={17}/>, end: false },
+    );
+  } else if (route?.route_type === 'direct') {
+    stops.unshift({
+      id: 'source', label: pointName(points, route.source_point_id),
+      marker: <>{route.source_point_id ?? 'А'}</>, end: false,
+    });
+  }
   return <div className="route-map">
     <div className="route-map__grid" aria-hidden="true"/>
     <div className="route-map__top"><span className="route-map__label"><GitFork size={16}/> Маршрут доставки</span>{sample && <span className="route-map__badge">Пример</span>}</div>
     <div className="route-map__body">
       <strong className="route-map__title">{type ? routeNames[type] : 'Маршрут появится после оформления'}</strong>
-      {type ? <div className="route-map__track">
-        {type !== 'shelf' && <><span className="route-map__node"><span className="route-map__pin">{type === 'hub' ? 'Х' : route.source_point_id ?? 'А'}</span>{source}</span><span className="route-map__line" aria-hidden="true"><ArrowRight size={15}/></span></>}
-        <span className="route-map__node"><span className="route-map__pin route-map__pin--end"><MapPin size={17}/></span>{destination}</span>
-      </div> : <div className="route-map__track"><span className="route-map__node"><span className="route-map__pin"><MapPin size={17}/></span>{pickup ? destination : 'Выберите ПВЗ'}</span></div>}
+      <div className={'route-map__track' + (type === 'hub' ? ' route-map__track--hub' : '')} role="list" aria-label="Точки маршрута">
+        {stops.map((stop, index) => <Fragment key={stop.id}>
+          {index > 0 && <span className="route-map__line" aria-hidden="true"><ArrowRight size={15}/></span>}
+          <span className="route-map__node" role="listitem">
+            <span className={'route-map__pin' + (stop.end ? ' route-map__pin--end' : '')} aria-hidden="true">{stop.marker}</span>
+            {stop.label}
+          </span>
+        </Fragment>)}
+      </div>
     </div>
   </div>;
 }

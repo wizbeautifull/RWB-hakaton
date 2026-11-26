@@ -133,6 +133,9 @@ code { background: var(--wash); border-radius: 7px; padding: 3px 7px; overflow-w
 .route-map__pin--end { background: #fffafe; }
 .route-map__line { display: flex; align-items: center; flex: 1 1 50px; max-width: 190px; align-self: start; margin-top: 11px; color: #ffe3f5; }
 .route-map__line::before { content: ''; flex: 1; border-top: 2px dashed #efb6df; transform-origin: left; animation: trace .65s ease-out both; }
+.route-map__track--hub { gap: clamp(4px, 1vw, 9px); }
+.route-map__track--hub .route-map__node { min-width: 0; max-width: 30%; }
+.route-map__track--hub .route-map__line { min-width: 16px; max-width: 110px; }
 @keyframes trace { from { transform: scaleX(0); } to { transform: scaleX(1); } }
 .checkout-total__row { display: flex; justify-content: space-between; gap: 12px; padding: 9px 0; font-size: 14px; color: var(--muted); }
 .checkout-total__row strong { text-align: right; color: #2b2030; }
