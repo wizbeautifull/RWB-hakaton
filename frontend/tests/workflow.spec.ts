@@ -82,8 +82,8 @@ test('customer, pickup and seller sites share live stock and order status', asyn
   const pointB = choices.getByRole('button', { name: /^ПВЗ Б\s/ });
   const sellerMap = supply.getByRole('region', { name: 'Метки ПВЗ' });
   const sellerMarkerA = sellerMap.getByRole('button', { name: /^ПВЗ А/ });
-  await expect(sellerMarkerA).toHaveText('A');
-  await expect(sellerMap.getByRole('button', { name: /^ПВЗ Б/ })).toHaveText('B');
+  await expect(sellerMarkerA).toHaveText('А');
+  await expect(sellerMap.getByRole('button', { name: /^ПВЗ Б/ })).toHaveText('Б');
   const quantity = supply.getByLabel('Количество в поставке, шт.');
   await quantity.fill('10');
   await expect(pointA).toBeDisabled();
@@ -126,8 +126,8 @@ test('customer, pickup and seller sites share live stock and order status', asyn
   const buyerPoint = page.getByLabel('Пункт выдачи');
   const markerA = buyerMap.getByRole('button', { name: 'ПВЗ А' });
   const markerB = buyerMap.getByRole('button', { name: 'ПВЗ Б' });
-  await expect(markerA).toHaveText('A');
-  await expect(markerB).toHaveText('B');
+  await expect(markerA).toHaveText('А');
+  await expect(markerB).toHaveText('Б');
   await expect(markerB).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('switch', { name: /WB Клуб/ }).check();
   await page.getByRole('button', { name: 'Показать варианты' }).click();

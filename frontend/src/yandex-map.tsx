@@ -27,6 +27,10 @@ const moscow: Coordinates = [37.62, 55.75];
 const coords = ({ longitude, latitude }: PointLocation): Coordinates => [longitude, latitude];
 let yandexLoading: Promise<YandexApi> | undefined;
 
+function markerLabel(point: MapPoint) {
+  return /^ПВЗ\s+(\p{L})$/iu.exec(point.name.trim())?.[1] ?? point.id;
+}
+
 function markerTitle(point: MapPoint) {
   return [point.name, point.location.address,
     point.available === undefined ? undefined : point.available ? 'Подходит' : 'Мало места',
@@ -96,7 +100,7 @@ function MapWidget({ points, selectedId, focusSelected, onSelect }: MapProps) {
         const title = markerTitle(point);
         return <button key={point.id} type="button" className="supply-map__label" style={style} title={title}
           aria-label={title} aria-pressed={point.id === selectedId} disabled={point.available === false}
-          tabIndex={-1} onClick={() => onSelect(point.id)}>{point.id}</button>;
+          tabIndex={-1} onClick={() => onSelect(point.id)}>{markerLabel(point)}</button>;
       })}
     </div>
     <div className="supply-map__tools">
@@ -161,7 +165,6 @@ function InteractiveMap({ points, selectedId, focusSelected, onSelect, apiKey }:
         const button = document.createElement('button');
         button.type = 'button';
         button.className = 'supply-map__marker';
-        button.textContent = point.id;
         const marker = new api.YMapMarker(props, button);
         map.addChild(marker);
         entry = { marker, button };
@@ -169,6 +172,7 @@ function InteractiveMap({ points, selectedId, focusSelected, onSelect, apiKey }:
       } else {
         entry.marker.update(props);
       }
+      entry.button.textContent = markerLabel(point);
       entry.button.disabled = point.available === false;
       entry.button.title = markerTitle(point);
       entry.button.setAttribute('aria-label', entry.button.title);
