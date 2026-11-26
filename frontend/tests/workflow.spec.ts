@@ -28,7 +28,28 @@ async function openPickupOrder(pickup: Page, buyer: Page, point: string) {
 test('customer, pickup and seller sites share live stock and order status', async ({ page, context, request }) => {
   const pickup = await context.newPage();
   const seller = await context.newPage();
-  await seller.route('https://yandex.ru/map-widget/**', route => route.fulfill({ contentType: 'text/html', body: 'Map widget' }));
+  await context.route('https://yandex.ru/map-widget/**', route => route.fulfill({ contentType: 'text/html', body: 'Map widget' }));
+  await seller.route('**/api/maps/config', route => route.fulfill({ json: { yandex_api_key: null } }));
+  await page.route('**/api/maps/config', route => route.fulfill({ json: { yandex_api_key: 'test-key' } }));
+  await page.route('https://api-maps.yandex.ru/v3/**', route => route.fulfill({
+    contentType: 'application/javascript',
+    body: `window.ymaps3 = {
+      ready: Promise.resolve(),
+      YMap: class {
+        constructor(container) { this.container = container; }
+        addChild({ element }) { element.style.margin = '28px'; this.container.append(element); }
+        removeChild({ element }) { element.remove(); }
+        update() {}
+        destroy() { this.container.replaceChildren(); }
+      },
+      YMapDefaultSchemeLayer: class {},
+      YMapDefaultFeaturesLayer: class {},
+      YMapMarker: class {
+        constructor(_props, element) { this.element = element; }
+        update() {}
+      }
+    };`,
+  }));
   await Promise.all([page.goto('/'), pickup.goto('/pvz/'), seller.goto('/seller/')]);
   await expect(page).toHaveTitle('Wildberries Mesh');
   await expect(pickup).toHaveTitle('Wildberries Mesh · ПВЗ');
@@ -96,8 +117,20 @@ test('customer, pickup and seller sites share live stock and order status', asyn
 
   await page.bringToFront();
   await expect(buyerCatalog).toHaveValue('CABLE', { timeout: 10_000 });
-  await page.getByLabel('Пункт выдачи').selectOption('B');
+  const buyerMap = page.getByRole('region', { name: 'Яндекс Карты · ПВЗ Wildberries' });
+  const buyerPoint = page.getByLabel('Пункт выдачи');
+  const markerA = buyerMap.getByRole('button', { name: 'ПВЗ А' });
+  const markerB = buyerMap.getByRole('button', { name: 'ПВЗ Б' });
+  await expect(markerA).toBeVisible();
+  await expect(markerB).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('switch', { name: /WB Клуб/ }).check();
+  await page.getByRole('button', { name: 'Показать варианты' }).click();
+  await expect(page.getByRole('button', { name: 'Обновить варианты' })).toBeVisible();
+  await markerA.click();
+  await expect(buyerPoint).toHaveValue('A');
+  await expect(page.getByRole('button', { name: 'Обновить варианты' })).toHaveCount(0);
+  await markerB.click();
+  await expect(buyerPoint).toHaveValue('B');
   await placeDelivery(page);
   await expect(page.getByText('Прямой рейс', { exact: true }).first()).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Операции ПВЗ' })).toHaveCount(0);

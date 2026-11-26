@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import { api } from './api';
 import type { PointLocation } from './api';
-import { Empty } from './ui';
+import { Empty, useResource } from './ui';
+import type { Mode } from './ui';
 
-export type MapPoint = { id: string; name: string; location: PointLocation; available: boolean };
-type MapProps = { points: MapPoint[]; selectedId?: string; onSelect: (id: string) => void };
+export type MapPoint = { id: string; name: string; location: PointLocation; available?: boolean };
+type MapProps = { points: MapPoint[]; selectedId?: string; focusSelected?: boolean; onSelect: (id: string) => void };
 type Coordinates = [longitude: number, latitude: number];
 type Viewport = { center: Coordinates; zoom: number } | { bounds: [Coordinates, Coordinates] };
 type Marker = { update: (props: { coordinates: Coordinates; zIndex: number }) => void };
@@ -55,19 +57,20 @@ export function yandexUrl(location: PointLocation) {
   return 'https://yandex.ru/maps/?' + new URLSearchParams({ ll: pair, pt: pair, z: '16' });
 }
 
-function MapWidget({ points, selectedId }: Pick<MapProps, 'points' | 'selectedId'>) {
+function MapWidget({ points, selectedId, focusSelected }: Pick<MapProps, 'points' | 'selectedId' | 'focusSelected'>) {
   const selected = points.find(point => point.id === selectedId);
-  const center = selected ? coords(selected.location) : coords(points[0].location);
+  const focus = focusSelected ? selected : undefined;
+  const center = coords((focus ?? points[0]).location);
   const visible = selected ? [selected, ...points.filter(point => point.id !== selectedId)] : points;
   const query = new URLSearchParams({
-    ll: center.join(','), z: selected ? '15' : '12',
-    pt: visible.slice(0, 30).map(point => `${coords(point.location).join(',')},${point.id === selectedId ? 'pm2vvl' : point.available ? 'pm2vvm' : 'pm2grm'}`).join('~'),
+    ll: center.join(','), z: focus ? '15' : '12',
+    pt: visible.slice(0, 30).map(point => `${coords(point.location).join(',')},${point.id === selectedId ? 'pm2vvl' : point.available === false ? 'pm2grm' : 'pm2vvm'}`).join('~'),
   });
   return <iframe className="supply-map__surface" title="Яндекс Карты · ПВЗ Wildberries"
     src={'https://yandex.ru/map-widget/v1/?' + query} loading="lazy"/>;
 }
 
-function InteractiveMap({ points, selectedId, onSelect, apiKey }: MapProps & { apiKey: string }) {
+function InteractiveMap({ points, selectedId, focusSelected, onSelect, apiKey }: MapProps & { apiKey: string }) {
   const container = useRef<HTMLDivElement>(null);
   const [instance, setInstance] = useState<{ api: YandexApi; map: MapInstance }>();
   const [failed, setFailed] = useState(false);
@@ -87,9 +90,10 @@ function InteractiveMap({ points, selectedId, onSelect, apiKey }: MapProps & { a
     return () => { active = false; map?.destroy(); mountedMarkers.clear(); };
   }, [apiKey]);
 
-  const selected = points.find(point => point.id === selectedId) ?? (points.length === 1 ? points[0] : undefined);
-  const focusLongitude = selected?.location.longitude;
-  const focusLatitude = selected?.location.latitude;
+  const focus = focusSelected ? points.find(point => point.id === selectedId) : undefined;
+  const center = focus ?? (points.length === 1 ? points[0] : undefined);
+  const focusLongitude = center?.location.longitude;
+  const focusLatitude = center?.location.latitude;
   const longitudes = points.map(point => point.location.longitude);
   const latitudes = points.map(point => point.location.latitude);
   const west = Math.min(...longitudes);
@@ -114,7 +118,7 @@ function InteractiveMap({ points, selectedId, onSelect, apiKey }: MapProps & { a
     for (const point of points) {
       removed.delete(point.id);
       const pressed = selectedId === point.id;
-      const props = { coordinates: coords(point.location), zIndex: pressed ? 3 : point.available ? 2 : 1 };
+      const props = { coordinates: coords(point.location), zIndex: pressed ? 3 : point.available === false ? 1 : 2 };
       let entry = markers.current.get(point.id);
       if (!entry) {
         const button = document.createElement('button');
@@ -128,8 +132,10 @@ function InteractiveMap({ points, selectedId, onSelect, apiKey }: MapProps & { a
       } else {
         entry.marker.update(props);
       }
-      entry.button.disabled = !point.available;
-      entry.button.title = `${point.name} · ${point.available ? 'Подходит' : 'Мало места'}`;
+      entry.button.disabled = point.available === false;
+      entry.button.title = [point.name, point.location.address,
+        point.available === undefined ? undefined : point.available ? 'Подходит' : 'Мало места',
+      ].filter(Boolean).join(' · ');
       entry.button.setAttribute('aria-label', entry.button.title);
       entry.button.setAttribute('aria-pressed', String(pressed));
       entry.button.onclick = () => onSelect(point.id);
@@ -140,17 +146,20 @@ function InteractiveMap({ points, selectedId, onSelect, apiKey }: MapProps & { a
     }
   }, [instance, points, selectedId, onSelect]);
 
-  if (failed) return <MapWidget points={points} selectedId={selectedId}/>;
+  if (failed) return <MapWidget points={points} selectedId={selectedId} focusSelected={focusSelected}/>;
   return <>
     <div className="supply-map__surface" ref={container} role="region" aria-label="Яндекс Карты · ПВЗ Wildberries"/>
     {!instance && <span className="supply-map__loading" role="status">Загружаем Яндекс Карты…</span>}
   </>;
 }
 
-export function PickupMap({ apiKey, ...props }: MapProps & { apiKey?: string | null }) {
-  if (!props.points.length) return <div className="supply-map supply-map--empty"><Empty>Для отображения ПВЗ на карте нужны координаты.</Empty></div>;
+export function PickupMap({ mode, points, selectedId, focusSelected = true, onSelect }: MapProps & { mode: Mode }) {
+  const useApi = mode === 'live' && points.length > 0;
+  const config = useResource(() => useApi ? api.mapsConfig() : Promise.resolve({ yandex_api_key: null }), String(useApi));
+  const apiKey = config.data?.yandex_api_key;
+  if (!points.length) return <div className="supply-map supply-map--empty"><Empty>На карте пока нет точек. Выберите ПВЗ из списка.</Empty></div>;
   return <div className="supply-map">
-    {apiKey ? <InteractiveMap key={apiKey} {...props} apiKey={apiKey}/>
-      : <MapWidget points={props.points} selectedId={props.selectedId}/>}
+    {apiKey ? <InteractiveMap key={apiKey} points={points} selectedId={selectedId} focusSelected={focusSelected} onSelect={onSelect} apiKey={apiKey}/>
+      : <MapWidget points={points} selectedId={selectedId} focusSelected={focusSelected}/>}
   </div>;
 }

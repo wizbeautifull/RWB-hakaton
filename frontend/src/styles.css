@@ -97,6 +97,7 @@ code { background: var(--wash); border-radius: 7px; padding: 3px 7px; overflow-w
 .checkout-quantity input { appearance: textfield; padding: 0 2px; min-height: 44px; text-align: center; border: 0; border-radius: 4px; background: transparent; font-variant-numeric: tabular-nums; }
 .checkout-quantity input::-webkit-inner-spin-button, .checkout-quantity input::-webkit-outer-spin-button { appearance: none; }
 .checkout-delivery .card__heading { margin-bottom: 0; }
+.checkout-pickup-address { margin: -7px 0 0; font-size: 13px; }
 .checkout-total h2 { margin-bottom: 14px; }
 .checkout-total__product { display: grid; grid-template-columns: 58px minmax(0, 1fr); gap: 12px; align-items: center; padding-bottom: 14px; }
 .checkout-total__product .checkout-photo { border-radius: 12px; }

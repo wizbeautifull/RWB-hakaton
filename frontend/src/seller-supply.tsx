@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { CheckCircle2, ExternalLink, MapPin, PackagePlus } from 'lucide-react';
-import { api } from './api';
 import type { Point } from './api';
-import { Empty, Field, useResource } from './ui';
+import { Empty, Field } from './ui';
 import type { Mode } from './ui';
 import { PickupMap, yandexUrl } from './yandex-map';
 import type { MapPoint } from './yandex-map';
@@ -26,8 +25,6 @@ export function SellerSupply({ mode, points }: { mode: Mode; points: Point[] }) 
   const mapPoints: MapPoint[] = ranked.flatMap(point => point.location ? [{
     id: point.id, name: point.name, location: point.location, available: fits(point),
   }] : []);
-  const config = useResource(() => mode === 'live' && mapPoints.length
-    ? api.mapsConfig() : Promise.resolve({ yandex_api_key: null }), `${mode}:${Boolean(mapPoints.length)}`);
 
   return <section className="card supply-picker" aria-labelledby="supply-title">
     <div className="card__heading"><span className="card__icon"><PackagePlus size={21}/></span><h2 id="supply-title">Куда привезти поставку</h2></div>
@@ -39,7 +36,7 @@ export function SellerSupply({ mode, points }: { mode: Mode; points: Point[] }) 
         : 'Введите целое количество и объём в пределах полей.'}</p>
     </div>
     <div className="supply-picker__workspace">
-      <PickupMap points={mapPoints} selectedId={selected?.id} onSelect={setSelectedId} apiKey={config.data?.yandex_api_key}/>
+      <PickupMap mode={mode} points={mapPoints} selectedId={selected?.id} onSelect={setSelectedId}/>
       <div className="supply-picker__choices">
         {ranked.length ? <ul className="supply-points" aria-label="ПВЗ для поставки">{ranked.map(point => {
           const available = fits(point);

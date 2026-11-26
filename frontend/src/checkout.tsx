@@ -7,6 +7,7 @@ import { demoOrder } from './demo';
 import { dateTime, fromMoscowInput, money, moscowInput, pointName, productName } from './format';
 import { ErrorMessage, Field, Heading, OrderSummary, RouteMap, field, useSubmit } from './ui';
 import type { Mode } from './ui';
+import { PickupMap } from './yandex-map';
 
 type Selection = { kind: 'delivery' | 'shelf_today'; route: Route; id: string };
 
@@ -36,6 +37,8 @@ export function Checkout({ mode, points, products }: { mode: Mode; points: Point
   const [selectedId, setSelectedId] = useState('');
   const [deadline] = useState(() => moscowInput(48));
   const selectedPickup = points.some(point => point.id === pickup) ? pickup : points.at(-1)?.id ?? '';
+  const pickupAddress = points.find(point => point.id === selectedPickup)?.location?.address;
+  const mapPoints = points.flatMap(point => point.location ? [{ id: point.id, name: point.name, location: point.location }] : []);
   const selectedSku = products.some(product => product.sku === sku) ? sku : products[0]?.sku ?? '';
   const units = Number(quantity) || 0;
   const quoteRequest = useSubmit(async data => {
@@ -78,6 +81,11 @@ export function Checkout({ mode, points, products }: { mode: Mode; points: Point
     setQuantity(String(Math.min(1_000_000, Math.max(1, units + delta))));
     invalidateQuote();
   }
+  function choosePickup(id: string) {
+    if (confirm.pending || quoteRequest.pending) return;
+    setPickup(id);
+    if (id !== selectedPickup) invalidateQuote();
+  }
   const sample = mode === 'demo' && !order && selectedSku === demoOrder.sku && selectedPickup === demoOrder.pickup_point_id;
   return <>
     <Heading crumb="Покупатель" title="Оформление заказа" description="Выберите товар и ПВЗ для доставки, затем проверьте, где его можно забрать сегодня."
@@ -112,6 +120,9 @@ export function Checkout({ mode, points, products }: { mode: Mode; points: Point
                 {!points.length && <option value="">Нет зарегистрированных ПВЗ</option>}
                 {points.map(point => <option key={point.id} value={point.id}>{point.name}</option>)}
               </select></Field>
+              {pickupAddress && <p className="checkout-pickup-address muted">{pickupAddress}</p>}
+              {points.length > 0 && <PickupMap mode={mode} points={mapPoints} selectedId={selectedPickup}
+                focusSelected={Boolean(pickup)} onSelect={choosePickup}/>}
               <label className="club"><span className="club__icon"><Sparkles size={19}/></span><span><strong>WB Клуб</strong><small>Открывает проверку локальной доставки</small></span>
                 <input className="club__switch" type="checkbox" role="switch" checked={club} onChange={e => setClub(e.target.checked)}/>
               </label>
