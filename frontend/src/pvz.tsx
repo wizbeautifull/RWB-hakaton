@@ -13,39 +13,33 @@ const stockActions: Record<StockAction, string> = {
   storage: 'Подтвердить хранение', reconcile_found: 'Вернуть найденное', reconcile_missing: 'Списать недостачу',
   move_slow: 'Перенести товар', remove_slow: 'Вывезти товар', send_damaged_to_hub: 'Отправить брак в хаб',
 };
-export function StockTable({ rows, points, onSelect }: { rows: Stock[]; points: Point[]; onSelect?: (row: Stock) => void }) {
+export function StockTable({ rows, points, showSeller = false, onSelect }: { rows: Stock[]; points: Point[]; showSeller?: boolean; onSelect?: (row: Stock) => void }) {
   if (!rows.length) return <Empty>Нет партий по выбранным фильтрам.</Empty>;
   return <div className="table-wrap" role="region" tabIndex={0} aria-label="Остатки по партиям"><table className="data-table"><thead><tr>
-    <th scope="col">Товар / партия</th><th scope="col">ПВЗ</th><th scope="col">Доступно</th><th scope="col">Резерв</th><th scope="col">В пути</th><th scope="col">Готово</th><th scope="col">Спорные</th><th scope="col">Брак</th><th scope="col">Хранение</th>{onSelect && <th scope="col">Действия</th>}
+    <th scope="col">Товар / партия</th>{showSeller && <th scope="col">Продавец</th>}<th scope="col">ПВЗ</th><th scope="col">Доступно</th><th scope="col">Резерв</th><th scope="col">В пути</th><th scope="col">Готово</th><th scope="col">Спорные</th><th scope="col">Брак</th><th scope="col">Хранение</th>{onSelect && <th scope="col">Действия</th>}
   </tr></thead><tbody>{rows.map(row => <tr key={row.point_id + '/' + row.batch_id}>
-    <td><strong>{productName(row.sku)}</strong><small>{row.batch_id}</small></td><td>{pointName(points, row.point_id)}</td>
+    <td><strong>{productName(row.sku)}</strong><small>{row.batch_id}</small></td>
+    {showSeller && <td>{row.seller_name ?? row.seller_id}</td>}<td>{pointName(points, row.point_id)}</td>
     <td>{row.available}</td><td>{row.reserved}</td><td>{row.in_transit}</td><td>{row.ready}</td><td>{row.blocked}</td><td>{row.damaged}</td>
     <td>{row.storage_days} дн.{row.slow_stock && <small className="tag tag--amber">Долгое</small>}</td>
     {onSelect && <td><button className="button button--secondary" onClick={() => onSelect(row)}>Открыть партию</button></td>}
   </tr>)}</tbody></table></div>;
 }
-function PointForm({ close, done }: { close: () => void; done: (point: Point) => void }) {
-  const transaction = useSubmit(data => api.putPoint(field(data, 'id'), {
-    name: field(data, 'name'), capacity_cm3: Number(field(data, 'capacity')),
-  }), done);
-  return <Dialog title="Регистрация ПВЗ" close={close}><form className="form-stack" onSubmit={transaction.submit}>
-    <Field label="Код ПВЗ"><input name="id" maxLength={80} required autoFocus/></Field>
-    <Field label="Название"><input name="name" maxLength={80} required/></Field>
-    <Field label="Вместимость, см³"><input name="capacity" type="number" min="1" max="1000000000" required/></Field>
-    <ErrorMessage error={transaction.error}/><button className="button button--primary" disabled={transaction.pending}>Зарегистрировать ПВЗ</button>
-  </form></Dialog>;
-}
 function ReceiptForm({ point, close, done }: { point: Point; close: () => void; done: () => void }) {
   const [initialDate] = useState(() => moscowInput(-1));
   const transaction = useSubmit(data => api.receipt({
     point_id: point.id, batch_id: field(data, 'batch'), seller_id: field(data, 'seller'), sku: field(data, 'sku'),
+    seller_name: field(data, 'seller_name') || null,
     quantity: Number(field(data, 'quantity')), unit_volume_cm3: Number(field(data, 'volume')), delivered_at: fromMoscowInput(field(data, 'date')),
   }), done);
   return <Dialog title="Приёмка партии" close={close}><form className="form-stack" onSubmit={transaction.submit}>
     <p className="muted">{point.name} · свободно {point.free_volume_cm3} см³</p>
     <div className="form-pair"><Field label="Код партии"><input name="batch" maxLength={80} required autoFocus/></Field>
     <Field label="Код товара (SKU)"><input name="sku" maxLength={80} required/></Field></div>
-    <Field label="Код продавца"><input name="seller" maxLength={80} required/></Field>
+    <div className="form-pair">
+      <Field label="Код продавца"><input name="seller" maxLength={80} required/></Field>
+      <Field label="Имя продавца (необязательно)"><input name="seller_name" maxLength={80}/></Field>
+    </div>
     <div className="form-pair"><Field label="Количество"><input name="quantity" type="number" min="1" max="1000000" required/></Field>
     <Field label="Объём единицы, см³"><input name="volume" type="number" min="1" max="1000000000" required/></Field></div>
     <Field label="Дата поставки · Москва"><input name="date" type="datetime-local" defaultValue={initialDate} required/></Field>
@@ -84,7 +78,7 @@ export function Pvz({ mode, points, initialPoint, reload }: { mode: Mode; points
   const [all, setAll] = useState(false);
   const [orderFilter, setOrderFilter] = useState('');
   const [message, setMessage] = useState('');
-  const [modal, setModal] = useState<'point' | 'receipt' | Stock>();
+  const [modal, setModal] = useState<'receipt' | Stock>();
   const point = points.find(item => item.id === pointId) ?? points[0];
   const filter = { point_id: point?.id ?? '', ...(orderFilter ? { order_id: orderFilter } : {}) };
   const id = point?.id;
@@ -108,18 +102,18 @@ export function Pvz({ mode, points, initialPoint, reload }: { mode: Mode; points
           {!points.length && <option value="">Нет зарегистрированных ПВЗ</option>}{points.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select></Field>
         {point && <div className="point-bar__capacity"><strong>{point.free_volume_cm3} см³</strong><small>доступный объём</small></div>}
-        <button className="button button--secondary" disabled={mode !== 'live'} onClick={() => setModal('point')}><CirclePlus size={18}/> Зарегистрировать ПВЗ</button>
+        <a className="button button--secondary" href="https://pvz.wb.ru" target="_blank" rel="noopener noreferrer"><CirclePlus size={18}/> Зарегистрировать ПВЗ</a>
       </div>
       {message && <div className="notice notice--success" role="status">{message}</div>}
       <div className="card">
         <div className="segmented" aria-label="Разделы ПВЗ">{tabs.map(item => <button type="button" className="segmented__button" aria-pressed={tab === item.id} key={item.id} onClick={() => setTab(item.id)}>{item.label}</button>)}</div>
         <ErrorMessage error={current.error}/>
-        {!point ? <Empty>Зарегистрируйте ПВЗ, чтобы начать работу.</Empty> : <>
+        {!point ? <Empty>На стенде пока нет доступных ПВЗ.</Empty> : <>
           {!current.data && !current.error && <Empty>Загружаем данные…</Empty>}
           {tab === 'queue' && <><label className="check"><input type="checkbox" checked={all} onChange={event => setAll(event.target.checked)}/> Показать все заказы точки</label>
             {queue.data && <OrderList orders={queue.data} points={points} point={id}/>}</>}
           {tab === 'stock' && <><div className="card__heading card__heading--spaced"><Boxes size={22}/><h2>Партии на точке</h2></div>
-            {stock.data && <StockTable rows={stock.data} points={points} onSelect={mode === 'live' ? setModal : undefined}/>}</>}
+            {stock.data && <StockTable rows={stock.data} points={points} showSeller onSelect={mode === 'live' ? setModal : undefined}/>}</>}
           {tab === 'ledger' && <>
             <div className="card__heading card__heading--spaced"><Wallet size={22}/><h2>Начисления по операциям</h2></div>
             <Field label="Фильтр по заказу"><input placeholder="Введите полный ID заказа" value={orderFilter} maxLength={80} onChange={event => setOrderFilter(event.target.value.trim())}/></Field>
@@ -137,7 +131,6 @@ export function Pvz({ mode, points, initialPoint, reload }: { mode: Mode; points
         </>}
       </div>
     </div>
-    {modal === 'point' && <PointForm close={() => setModal(undefined)} done={item => {setPointId(item.id); changed('ПВЗ зарегистрирован.');}}/>}
     {modal === 'receipt' && point && <ReceiptForm point={point} close={() => setModal(undefined)} done={() => {setTab('stock'); changed('Партия принята.');}}/>}
     {typeof modal === 'object' && <StockForm row={modal} points={points} close={() => setModal(undefined)} done={() => changed('Операция подтверждена.')}/>}
   </>;

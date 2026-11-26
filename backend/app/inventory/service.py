@@ -6,7 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..contracts import APIModel, Code, Command, OperationEvent, Quantity, Volume, utc_now
-from ..models import Batch, Operation, Point, Product, Stock
+from ..models import Batch, Operation, Point, Product, Seller, Stock
 from ..operations import OperationLog, reject
 from ..pricing.ledger import PricingLedger
 
@@ -32,7 +32,11 @@ class ProductView(ProductInput):
     sku: Code
 
 
-class Receipt(Command, ProductInput):
+class ProductRegistration(ProductInput):
+    seller_name: Code | None = None
+
+
+class Receipt(Command, ProductRegistration):
     batch_id: Code
     sku: Code
     point_id: Code
@@ -45,6 +49,7 @@ class BatchView(Receipt):
 
 
 class StockView(ProductView):
+    seller_name: Code | None = None
     batch_id: Code
     point_id: Code
     delivered_at: AwareDatetime
@@ -82,7 +87,7 @@ def get_product(session: Session, sku: str) -> Product:
     return product
 
 
-def register_product(session: Session, sku: str, data: ProductInput) -> Product:
+def register_product(session: Session, sku: str, data: ProductRegistration) -> Product:
     product = session.get(Product, sku)
     if product is None:
         product = Product(sku=sku, seller_id=data.seller_id, unit_volume_cm3=data.unit_volume_cm3)
@@ -90,6 +95,12 @@ def register_product(session: Session, sku: str, data: ProductInput) -> Product:
         session.flush()
     elif (product.seller_id, product.unit_volume_cm3) != (data.seller_id, data.unit_volume_cm3):
         reject("product_conflict", "У товара уже зарегистрирован другой продавец или объём")
+    if data.seller_name is not None:
+        seller = session.get(Seller, data.seller_id)
+        if seller is None:
+            session.add(Seller(id=data.seller_id, name=data.seller_name))
+        else:
+            seller.name = data.seller_name
     return product
 
 
@@ -124,7 +135,7 @@ def stock_at(session: Session, batch_id: str, point_id: str) -> Stock:
 def receive_batch(
     session: Session, command: Receipt, reserve_percent: int, ledger: PricingLedger,
 ) -> BatchView:
-    log = OperationLog(session, "receipt", command, ledger)
+    log = OperationLog(session, "receipt", command, ledger, omit_if_none=("seller_name",))
     replay = log.replay()
     if replay:
         return BatchView(**command.model_dump(), simulated=False)
@@ -175,11 +186,11 @@ def storage_days(batch: Batch) -> int:
     return max(0, (utc_now() - datetime.fromisoformat(batch.delivered_at)).days)
 
 
-def stock_view(stock: Stock, batch: Batch, product: Product, slow_days: int) -> StockView:
+def stock_view(stock: Stock, batch: Batch, product: Product, seller_name: str | None, slow_days: int) -> StockView:
     days = storage_days(batch)
     return StockView(
         batch_id=batch.id, point_id=stock.point_id, sku=product.sku, seller_id=product.seller_id,
-        unit_volume_cm3=product.unit_volume_cm3, delivered_at=batch.delivered_at,
+        seller_name=seller_name, unit_volume_cm3=product.unit_volume_cm3, delivered_at=batch.delivered_at,
         storage_days=days, slow_stock=stock.available > 0 and days >= slow_days,
         available=stock.available, reserved=stock.reserved, in_transit=stock.in_transit,
         ready=stock.ready, blocked=stock.blocked, damaged=stock.damaged,
@@ -189,7 +200,8 @@ def stock_view(stock: Stock, batch: Batch, product: Product, slow_days: int) -> 
 def list_stock(
     session: Session, slow_days: int, point_id: str | None, sku: str | None, seller_id: str | None,
 ) -> list[StockView]:
-    query = select(Stock, Batch, Product).join_from(Stock, Batch).join(Product)
+    query = (select(Stock, Batch, Product, Seller.name).join_from(Stock, Batch).join(Product)
+             .outerjoin(Seller, Seller.id == Product.seller_id))
     if point_id is not None:
         get_point(session, point_id)
         query = query.where(Stock.point_id == point_id)
@@ -198,8 +210,8 @@ def list_stock(
     if seller_id is not None:
         query = query.where(Product.seller_id == seller_id)
     return [
-        stock_view(stock, batch, product, slow_days)
-        for stock, batch, product in session.execute(query.order_by(Stock.point_id, Batch.id))
+        stock_view(stock, batch, product, seller_name, slow_days)
+        for stock, batch, product, seller_name in session.execute(query.order_by(Stock.point_id, Batch.id))
     ]
 
 
@@ -214,8 +226,9 @@ def change_stock(
         reject("stock_not_found", "Партия в этом ПВЗ не найдена", 404)
     batch = session.get(Batch, batch_id)
     product = get_product(session, batch.sku)
+    seller_name = session.scalar(select(Seller.name).where(Seller.id == product.seller_id))
     if replay:
-        return stock_view(stock, batch, product, slow_days)
+        return stock_view(stock, batch, product, seller_name, slow_days)
     target = command.destination_point_id
     if command.type == "move_slow":
         if target is None or point_id == target:
@@ -244,4 +257,4 @@ def change_stock(
         command.type, point_id, batch.sku, command.quantity, batch_id=batch_id,
         details={"destination_point_id": target} if target else None,
     )
-    return stock_view(stock, batch, product, slow_days)
+    return stock_view(stock, batch, product, seller_name, slow_days)

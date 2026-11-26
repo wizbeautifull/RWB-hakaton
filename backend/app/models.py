@@ -12,6 +12,13 @@ class Point(Base):
     capacity_cm3: Mapped[int]
 
 
+class Seller(Base):
+    __tablename__ = "sellers"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    name: Mapped[str]
+
+
 class Product(Base):
     __tablename__ = "products"
 

@@ -7,7 +7,7 @@ export const demoPoints: Point[] = [
 export const demoProducts: Product[] = [{ sku: 'CABLE', seller_id: 'seller-1', unit_volume_cm3: 100 }];
 const date = (minutes: number) => new Date(Date.now() + minutes * 60000).toISOString();
 export const demoStock: Stock[] = [{
-  ...demoProducts[0], batch_id: 'lot-1', point_id: 'A', delivered_at: date(-1440), storage_days: 1,
+  ...demoProducts[0], seller_name: 'Магазин электроники', batch_id: 'lot-1', point_id: 'A', delivered_at: date(-1440), storage_days: 1,
   slow_stock: false, available: 2, reserved: 1, in_transit: 0, ready: 0, blocked: 0, damaged: 0,
 }];
 export const demoOrder: Order = {

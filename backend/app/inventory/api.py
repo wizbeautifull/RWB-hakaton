@@ -8,7 +8,7 @@ from ..models import Point, Product
 from ..operations import reject
 from ..pricing.ledger import PricingLedger
 from .service import (
-    BatchView, PointInput, PointView, ProductInput, ProductView, Receipt, StockCommand, StockView,
+    BatchView, PointInput, PointView, ProductRegistration, ProductView, Receipt, StockCommand, StockView,
     StorageConfirmation, change_stock, confirm_storage, list_stock, point_view, receive_batch,
     register_product,
 )
@@ -36,7 +36,7 @@ def inventory_router(db: Database, pilot: PilotConfig, ledger: PricingLedger) ->
             return [point_view(session, point, reserve) for point in session.scalars(select(Point).order_by(Point.id))]
 
     @router.put("/products/{sku}")
-    def put_product(sku: Code, data: ProductInput) -> ProductView:
+    def put_product(sku: Code, data: ProductRegistration) -> ProductView:
         with db.transaction(write=True) as session:
             return ProductView.model_validate(register_product(session, sku, data))
 

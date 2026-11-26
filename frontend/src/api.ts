@@ -1,6 +1,7 @@
 export type Point = { id: string; name: string; capacity_cm3: number; usable_capacity_cm3: number; occupied_volume_cm3: number; free_volume_cm3: number };
 export type Product = { sku: string; seller_id: string; unit_volume_cm3: number };
 export type Stock = Product & {
+  seller_name: string | null;
   batch_id: string; point_id: string; delivered_at: string; storage_days: number; slow_stock: boolean;
   available: number; reserved: number; in_transit: number; ready: number; blocked: number; damaged: number;
 };
@@ -117,7 +118,4 @@ export const api = {
   orderAction: (id: string, body: Payload) => post<Order>('/orders/' + encode(id) + '/actions', body),
   receipt: (body: Payload) => post('/batches', body),
   stockAction: (point: string, batch: string, storage: boolean, body: Payload) => post('/inventory/' + encode(point) + '/' + encode(batch) + (storage ? '/storage' : '/actions'), body),
-  putPoint: (id: string, body: Payload) => request<Point>('/points/' + encode(id), {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-  }),
 };

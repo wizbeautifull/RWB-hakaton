@@ -29,7 +29,8 @@ def seed(base_url: str) -> None:
             continue
         api("/batches", "POST", {
             "request_id": batch_id, "batch_id": batch_id, "sku": sku, "point_id": "A",
-            "seller_id": "seller-1", "quantity": quantity, "unit_volume_cm3": 100,
+            "seller_id": "seller-1", "seller_name": "Магазин электроники",
+            "quantity": quantity, "unit_volume_cm3": 100,
             "delivered_at": (utc_now() - timedelta(days=days, minutes=1)).isoformat(),
         })
 

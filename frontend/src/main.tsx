@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BarChart3, Boxes, ClipboardList, GitFork, MapPin, RefreshCw, ShoppingBag, Store } from 'lucide-react';
+import { Boxes, ClipboardList, GitFork, MapPin, RefreshCw, ShoppingBag, Store } from 'lucide-react';
 import { api } from './api';
 import type { Point, Product } from './api';
 import { Checkout } from './checkout';
@@ -19,7 +19,6 @@ const sites = {
   ] },
   pickup: { label: 'Рабочее место ПВЗ', nav: [
     { path: '/', caption: 'ПВЗ', icon: MapPin },
-    { path: '/jury', caption: 'Для жюри', icon: BarChart3 },
   ] },
   seller: { label: 'Кабинет продавца', nav: [
     { path: '/', caption: 'Продавец', icon: Store },

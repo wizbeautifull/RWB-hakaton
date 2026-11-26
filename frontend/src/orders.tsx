@@ -97,7 +97,7 @@ export function OrderDetail({ id, point, mode, points, canOperate }: { id: strin
       </div>
       <aside className="workspace-grid__aside">
         <RouteMap route={order.route} points={points} pickup={order.pickup_point_id} sample={mode === 'demo'}/>
-        {canOperate && order.route && <div className="card"><h2>Причина выбора</h2><p>{order.route.reason}</p><a className="text-link" href={'#/jury?order=' + encodeURIComponent(order.id)}>Сравнить маршруты <ArrowRight size={16}/></a></div>}
+        {canOperate && order.route && <div className="card"><h2>Причина выбора</h2><p>{order.route.reason}</p></div>}
         {canOperate && <div className="card"><h2>Начисления по заказу</h2><strong className="metric">{money(order.accrual_total_kopecks)}</strong>
           {order.accruals.length > 0 && <ul className="event-list">{order.accruals.map(item => <li key={item.event_id}><div>{operationNames[item.reason] ?? item.reason}<small>{pointName(points, item.point_id)}</small></div><strong>{money(item.amount_kopecks)}</strong></li>)}</ul>}
         </div>}

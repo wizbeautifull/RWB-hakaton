@@ -1,17 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-async function registerPoint(page: Page, id: string, name: string) {
-  await page.getByRole('button', { name: 'Зарегистрировать ПВЗ' }).click();
-  const modal = page.getByRole('dialog');
-  await modal.getByLabel('Код ПВЗ').fill(id);
-  await modal.getByLabel('Название').fill(name);
-  await modal.getByLabel('Вместимость, см³').fill('1000');
-  await modal.getByRole('button', { name: 'Зарегистрировать ПВЗ' }).click();
-  await expect(modal).toBeHidden();
-  await expect(page.getByLabel('Рабочая точка')).toHaveValue(id);
-}
-
 async function perform(page: Page, operation: string, scanCode: string) {
   await page.getByRole('button', { name: operation, exact: true }).click();
   const modal = page.getByRole('dialog');
@@ -36,7 +25,7 @@ async function openPickupOrder(pickup: Page, buyer: Page, point: string) {
   await expect(pickup.getByRole('heading', { name: 'Операции ПВЗ' })).toBeVisible();
 }
 
-test('customer, pickup and seller sites share live stock and order status', async ({ page, context }) => {
+test('customer, pickup and seller sites share live stock and order status', async ({ page, context, request }) => {
   const pickup = await context.newPage();
   const seller = await context.newPage();
   await Promise.all([page.goto('/'), pickup.goto('/pvz/'), seller.goto('/seller/')]);
@@ -47,7 +36,7 @@ test('customer, pickup and seller sites share live stock and order status', asyn
   const pickupNav = pickup.getByRole('navigation', { name: 'Разделы проекта' });
   const sellerNav = seller.getByRole('navigation', { name: 'Разделы проекта' });
   await expect(nav.getByRole('link')).toHaveText(['Оформление', 'Мои заказы']);
-  await expect(pickupNav.getByRole('link')).toHaveText(['ПВЗ', 'Для жюри']);
+  await expect(pickupNav.getByRole('link')).toHaveText(['ПВЗ']);
   await expect(sellerNav.getByRole('link')).toHaveText(['Продавец']);
   const buyerCatalog = page.getByRole('combobox', { name: 'Товар', exact: true });
   await expect(buyerCatalog).toHaveText('Каталог пуст');
@@ -55,24 +44,31 @@ test('customer, pickup and seller sites share live stock and order status', asyn
   await seller.getByRole('button', { name: 'Показать отчёт' }).click();
   await expect(seller.getByText('Нет партий по выбранным фильтрам.')).toBeVisible();
 
-  const register = pickup.getByRole('button', { name: 'Зарегистрировать ПВЗ' });
-  await register.click();
-  await expect(pickup.getByRole('dialog')).toBeVisible();
-  await pickup.keyboard.press('Escape');
-  await expect(register).toBeFocused();
-  await registerPoint(pickup, 'A', 'ПВЗ А');
-  await registerPoint(pickup, 'B', 'ПВЗ Б');
+  const register = pickup.getByRole('link', { name: 'Зарегистрировать ПВЗ' });
+  await expect(register).toHaveAttribute('href', 'https://pvz.wb.ru');
+  for (const [id, name] of [['A', 'ПВЗ А'], ['B', 'ПВЗ Б']]) {
+    const response = await request.put(`/api/points/${id}`, { data: { name, capacity_cm3: 1000 } });
+    expect(response.ok()).toBe(true);
+  }
   await pickup.getByLabel('Рабочая точка').selectOption('A');
-  await pickup.getByRole('button', { name: 'Принять партию' }).click();
+  const acceptBatch = pickup.getByRole('button', { name: 'Принять партию' });
+  await acceptBatch.click();
   const receipt = pickup.getByRole('dialog');
+  await expect(receipt).toBeVisible();
+  await pickup.keyboard.press('Escape');
+  await expect(acceptBatch).toBeFocused();
+  await acceptBatch.click();
   await receipt.getByLabel('Код партии').fill('lot-e2e');
   await receipt.getByLabel('Код товара (SKU)').fill('CABLE');
   await receipt.getByLabel('Код продавца').fill('seller-1');
+  await receipt.getByLabel('Имя продавца').fill('Магазин электроники');
   await receipt.getByLabel('Количество', { exact: true }).fill('3');
   await receipt.getByLabel('Объём единицы, см³').fill('100');
   await receipt.getByRole('button', { name: 'Принять партию' }).click();
   await expect(receipt).toBeHidden();
-  await expect(pickup.getByText('lot-e2e')).toBeVisible();
+  await expect(pickup.getByRole('columnheader', { name: 'Продавец' })).toBeVisible();
+  const stockRow = pickup.getByRole('row').filter({ hasText: 'lot-e2e' });
+  await expect(stockRow.getByRole('cell', { name: 'Магазин электроники' })).toBeVisible();
   await seller.bringToFront();
   await expect(seller.getByText('lot-e2e')).toBeVisible({ timeout: 10_000 });
   await expect(seller.getByText('3 шт.', { exact: true }).first()).toBeVisible();
@@ -138,7 +134,7 @@ test('customer, pickup and seller sites share live stock and order status', asyn
   await page.bringToFront();
   await expect(page.getByText('Возвращён', { exact: true }).first()).toBeVisible({ timeout: 10_000 });
 
-  await pickupNav.getByRole('link', { name: 'Для жюри' }).click();
+  await pickup.goto('/pvz/#/jury');
   await expect(pickup.getByText('Экономия 7,67%', { exact: true })).toBeVisible();
   await pickup.getByRole('button', { name: '8 заказов' }).click();
   await expect(pickup.getByText(/^185[\s\u00a0]*₽$/)).toBeVisible();

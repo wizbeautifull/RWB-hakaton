@@ -126,6 +126,18 @@ def test_receipt_capacity_and_idempotency(api):
     assert len(api.get("/api/operations", params={"point_id": "A"}).json()) == 1
 
 
+def test_seller_name_applies_to_existing_stock_for_the_same_seller(api):
+    original = receive(api)
+    assert stock(api, "A")["seller_name"] is None
+    named = {**batch_payload(point="B", batch_id="adapter", sku="ADAPTER"),
+             "seller_name": "Магазин электроники"}
+    assert api.post("/api/batches", json=named).status_code == 201
+    assert stock(api, "B", "adapter")["seller_name"] == named["seller_name"]
+    assert stock(api, "A")["seller_name"] == named["seller_name"]
+    assert api.post("/api/batches", json=original).status_code == 201
+    assert stock(api, "A")["seller_name"] == named["seller_name"]
+
+
 def test_shelf_reserve_and_cancel_across_batches(api):
     receive(api, quantity=1, days=8)
     receive(api, quantity=2, batch_id="new")
