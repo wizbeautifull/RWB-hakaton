@@ -62,6 +62,7 @@ class OrderView(APIModel):
     accruals: list[Accrual]
     accrual_total_kopecks: int
     pricing_pending: bool
+    buyer_acceleration_fee_kopecks: int
 
 
 def get_order(session: Session, order_id: str) -> Order:
@@ -94,6 +95,7 @@ class Orders:
     ):
         self.db = db
         self.reserve_percent = pilot.capacity_reserve_percent
+        self.economics = pilot.economics
         self.routing = routing
         self.ledger = ledger
 
@@ -110,6 +112,10 @@ class Orders:
             allocations=[BatchAllocation.model_validate(item) for item in self.allocations(session, order)],
             operations=events, accruals=accruals, pricing_pending=False,
             accrual_total_kopecks=sum(entry.amount_kopecks for entry in accruals),
+            buyer_acceleration_fee_kopecks=(
+                self.economics.buyer_acceleration_fee_kopecks
+                if order.route and order.route["route_type"] != "hub" else 0
+            ),
         )
 
     def routing_request(
@@ -117,18 +123,25 @@ class Orders:
     ) -> RoutingRequest:
         pickup = get_point(session, order.pickup_point_id)
         product = get_product(session, order.sku)
-        balances = session.execute(
-            select(Stock.point_id, func.sum(Stock.available))
+        batches = session.execute(
+            select(Stock, Batch)
             .join_from(Stock, Batch).where(Batch.sku == order.sku, Stock.available > 0)
-            .group_by(Stock.point_id).order_by(Stock.point_id)
+            .order_by(Stock.point_id, Batch.delivered_at, Batch.id)
         )
         now = utc_now()
+        balances: dict[str, RoutingStock] = {}
+        for stock, batch in batches:
+            balance = balances.setdefault(stock.point_id, RoutingStock(point_id=stock.point_id, available=0))
+            units = min(stock.available, max(0, order.quantity - balance.available))
+            days = (now - datetime.fromisoformat(batch.delivered_at)).days
+            balance.extra_storage_kopecks += self.economics.excess_storage(days, units)
+            balance.available += stock.available
         return RoutingRequest(
             sku=order.sku, quantity=order.quantity, unit_volume_cm3=product.unit_volume_cm3,
             wb_club=order.wb_club, pickup_point_id=pickup.id, requested_at=now,
             promised_by=order.promised_by,
             pickup_free_volume_cm3=self.destination_space(session, order),
-            stock=[RoutingStock(point_id=point_id, available=quantity) for point_id, quantity in balances],
+            stock=list(balances.values()),
             resource_usage=reservations.resource_usage(session, now),
         )
 

@@ -29,5 +29,26 @@
       "issue": {"payer_id": "wb", "recipient_id": "$pvz", "per_unit_kopecks": 2000},
       "return": {"payer_id": "wb", "recipient_id": "$pvz", "per_unit_kopecks": 1000}
     }
+  },
+  "economics": {
+    "included_storage_days": 4,
+    "marketplace_storage_unit_day_kopecks": 300,
+    "return_probability_bps": 1000,
+    "marketplace_return_kopecks": 12000,
+    "buyer_acceleration_fee_kopecks": 0,
+    "seller_default": {
+      "sale_kopecks": 50000,
+      "goods_kopecks": 24000,
+      "commission_bps": 2000,
+      "shelf_logistics_kopecks": 3500,
+      "direct_logistics_kopecks": 5000,
+      "hub_logistics_kopecks": 6000,
+      "storage_unit_day_kopecks": 100,
+      "return_unit_kopecks": 2500
+    },
+    "point_operation_costs_kopecks": {
+      "intake": 200, "storage": 60, "pack": 900, "handover": 300,
+      "transfer_receive": 300, "issue": 1200, "return": 700
+    }
   }
 }

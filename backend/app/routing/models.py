@@ -64,6 +64,7 @@ class Stock(Contract):
     product_id: Identifier
     pvz_id: Identifier
     available: Units
+    extra_storage_kopecks: Money = 0
 
 
 class DirectTrip(Contract):

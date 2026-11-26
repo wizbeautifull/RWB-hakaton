@@ -65,6 +65,7 @@ def direct_breakdown(
     empty_mileage: int,
     individual_idle: int,
     retained_hub: int,
+    additional_kopecks: int = 0,
 ) -> CostBreakdown:
     if not 0 <= order_index < loaded_orders:
         raise ValueError("order_index must be within the loaded trip")
@@ -75,6 +76,7 @@ def direct_breakdown(
         trip_share_kopecks=share + int(order_index < remainder),
         individual_idle_kopecks=individual_idle,
         retained_hub_kopecks=retained_hub,
+        additional_kopecks=additional_kopecks,
     )
 
 

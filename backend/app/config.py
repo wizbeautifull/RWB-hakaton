@@ -4,6 +4,7 @@ from pathlib import Path
 
 from pydantic import BaseModel, Field, model_validator
 
+from .economics import EconomicsConfig
 from .pricing.costs import PilotPricing
 from .routing.models import DirectTrip, PickupPoint
 
@@ -49,6 +50,7 @@ class PilotConfig(BaseModel):
     slow_stock_days: int = Field(gt=0)
     demo_routing: PilotSchedule
     logistics_pricing: PilotPricing
+    economics: EconomicsConfig = Field(default_factory=EconomicsConfig)
 
 
 def load_config() -> PilotConfig:

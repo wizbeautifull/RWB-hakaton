@@ -43,6 +43,7 @@ class OrderRequest(Command):
 class RoutingStock(APIModel):
     point_id: Code
     available: int
+    extra_storage_kopecks: int = 0
 
 
 class ResourceUsage(APIModel):

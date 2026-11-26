@@ -28,6 +28,7 @@ REASONS = {
     "shelf_no_stock": "В выбранном ПВЗ не хватает доступного остатка.",
     "shelf_pack_window": "В выбранном ПВЗ нет свободного окна сборки.",
     "shelf_after_deadline": "Сборка с полки завершается после обещанного срока.",
+    "shelf_more_expensive": "С учётом хранения выдача с полки дороже доступного хаба.",
     "shelf_priority": "Выдача с полки уже доступна к сроку и имеет приоритет.",
     "direct_ready": "Прямой рейс укладывается в срок, окна и доступную ёмкость.",
     "direct_cheaper": "Прямой рейс укладывается в срок и дешевле хаба.",
@@ -171,6 +172,7 @@ def _shelf(
     pricing: PilotPricing,
     point: PickupPoint,
     available: int,
+    extra_storage_kopecks: int,
 ) -> CandidateEvaluation:
     if available < request.quantity:
         return _candidate(RouteType.SHELF, "shelf_no_stock", source_id=point.pvz_id)
@@ -188,7 +190,7 @@ def _shelf(
         RouteType.SHELF,
         point.pvz_id,
         (pack,),
-        CostBreakdown(base_kopecks=pricing.shelf_per_order_kopecks),
+        CostBreakdown(base_kopecks=pricing.shelf_per_order_kopecks, additional_kopecks=extra_storage_kopecks),
         request.deadline,
         "shelf_ready",
         "shelf_after_deadline",
@@ -202,6 +204,7 @@ def _direct(
     source: PickupPoint,
     target: PickupPoint,
     available: int,
+    extra_storage_kopecks: int,
 ) -> CandidateEvaluation:
     def reject(code: str, milestones: tuple[RouteMilestone, ...] = ()) -> CandidateEvaluation:
         return _candidate(
@@ -277,6 +280,7 @@ def _direct(
         empty_mileage=trip.empty_mileage_kopecks,
         individual_idle=trip.individual_idle_kopecks,
         retained_hub=trip.retained_hub_kopecks,
+        additional_kopecks=extra_storage_kopecks,
     )
     return _quoted_candidate(
         RouteType.DIRECT,
@@ -373,13 +377,23 @@ def choose_route(request: RouteRequest, pricing: PilotPricing) -> RouteDecision:
     available = {
         row.pvz_id: row.available for row in request.stock if row.product_id == request.product_id
     }
-    shelf = _shelf(request, pricing, target, available.get(target.pvz_id, 0))
+    storage = {
+        row.pvz_id: row.extra_storage_kopecks for row in request.stock if row.product_id == request.product_id
+    }
+    shelf = _shelf(request, pricing, target, available.get(target.pvz_id, 0), storage.get(target.pvz_id, 0))
     if shelf.status == "eligible":
-        candidates = (shelf, _candidate(RouteType.DIRECT, "shelf_priority", status="skipped"), hub)
-        return _decision(request, shelf, "shelf_ready", candidates, hub=hub.quote)
+        if hub.status != "eligible" or shelf.quote.cost_kopecks <= hub.quote.cost_kopecks:
+            candidates = (shelf, _candidate(RouteType.DIRECT, "shelf_priority", status="skipped"), hub)
+            return _decision(request, shelf, "shelf_ready", candidates, hub=hub.quote)
+        shelf = shelf.model_copy(update={
+            "status": "rejected", "reason_code": "shelf_more_expensive", "reason": REASONS["shelf_more_expensive"],
+        })
 
     flights = tuple(
-        _direct(request, pricing, trip, points[trip.source_id], target, available.get(trip.source_id, 0))
+        _direct(
+            request, pricing, trip, points[trip.source_id], target,
+            available.get(trip.source_id, 0), storage.get(trip.source_id, 0),
+        )
         for trip in sorted(request.direct_trips, key=lambda candidate: candidate.trip_id)
         if trip.pickup_pvz_id == target.pvz_id
     )
@@ -397,7 +411,8 @@ def choose_route(request: RouteRequest, pricing: PilotPricing) -> RouteDecision:
 
     if best is None or best_candidate is None:
         if hub.status == "eligible":
-            return _decision(request, hub, blocker, candidates, direct=shown, hub=hub.quote)
+            reason = shelf.reason_code if shelf.reason_code == "shelf_more_expensive" else blocker
+            return _decision(request, hub, reason, candidates, direct=shown, hub=hub.quote)
         return _decision(
             request,
             None,

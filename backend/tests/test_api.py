@@ -158,7 +158,7 @@ def test_hub_confirmation_and_damaged_return(api):
 
 def test_good_return_and_slow_stock_transfer(api):
     receive(api, days=40)
-    order = create(api, "A")
+    order = create(api, "A", hours=3)
     act(api, order, "pack", "A")
     act(api, order, "issue", "A")
     act(api, order, "return_good", "A")
@@ -438,3 +438,50 @@ def test_accrual_and_stock_roll_back_together(api, monkeypatch):
     assert stock(api, "A")["ready"] == 1
     assert api.get(f"/api/orders/{order['id']}").json()["accrual_total_kopecks"] == 1500
     assert act(api, order, "issue", "A", request_id="retry-issue")["accrual_total_kopecks"] == 3500
+
+
+def test_aged_stock_changes_routing_and_explains_cost(api):
+    receive(api, days=40)
+    order = create(api)
+    route = order["route"]
+    assert route["route_type"] == "hub"
+    direct = next(item for item in route["evaluations"] if item["route_type"] == "direct")
+    assert direct["quote"]["cost_breakdown"]["additional_kopecks"] == 10_800
+    assert direct["quote"]["cost_kopecks"] == 27_000
+    local = create(api, "A")["route"]
+    assert (local["route_type"], local["reason_code"]) == ("hub", "shelf_more_expensive")
+
+
+def test_district_comparison_and_risk_sensitivity(api):
+    comparison = api.get("/api/analytics/comparison").json()
+    assert comparison["selected_route"] == "direct"
+    assert comparison["distribution"] == {"shelf": 10, "direct": 30, "hub": 60}
+    assert comparison["baseline_kopecks"] == 1_720_000
+    assert comparison["mesh_kopecks"] == 1_588_000
+    assert comparison["savings_percent"] == 7.67
+    low_load = api.get("/api/analytics/comparison", params={"trip_orders": 8}).json()
+    assert (low_load["selected_route"], low_load["direct_kopecks"]) == ("hub", 18_500)
+    risky = api.get("/api/analytics/comparison", params={"return_bps": 3000}).json()
+    assert risky["selected_route"] == "hub"
+    assert risky["expected_return_kopecks"] == 3600
+    assert sum(risky["distribution"].values()) == comparison["cohort_orders"]
+
+
+def test_dashboard_margins_and_return(api):
+    receive(api)
+    order = create(api)
+    assert order["buyer_acceleration_fee_kopecks"] == 0
+    for action, point in (("pack", "A"), ("handoff", "A"), ("receive", "B"), ("issue", "B")):
+        act(api, order, action, point)
+    assert api.get("/api/analytics/points/B", params={"order_id": order["id"]}).json() == {
+        "revenue_kopecks": 2500, "costs_kopecks": 1500, "profit_kopecks": 1000,
+    }
+    report = api.get("/api/analytics/sellers/seller", params={"point_id": "B"}).json()
+    assert len(report) == 1
+    assert report[0]["storage_kopecks"] == 100
+    assert report[0]["profit_kopecks"] == 10_650
+    assert api.get("/api/analytics/sellers/seller", params={"point_id": "A"}).json() == []
+    act(api, order, "return_good", "B")
+    returned = api.get("/api/analytics/sellers/seller").json()[0]
+    assert returned["revenue_kopecks"] == returned["goods_kopecks"] == 0
+    assert returned["profit_kopecks"] == -7600

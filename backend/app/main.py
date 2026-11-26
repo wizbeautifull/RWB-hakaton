@@ -2,13 +2,17 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from sqlalchemy import select
 
-from .config import PilotConfig, load_config
+from .analytics import analytics_router
+from .config import ROOT, PilotConfig, load_config
 from .contracts import Accrual, Code, OperationEvent
 from .db import Base, Database
 from .integrations import PilotRouting
 from .inventory.api import inventory_router
+from .models import Point
 from .operations import read_events
 from .orders.api import order_router
 from .orders.service import Orders
@@ -42,12 +46,15 @@ def create_app(
         finally:
             db.engine.dispose()
 
-    app = FastAPI(title="Mesh-доставка · Заказы, остатки и логистика", version="0.2.0", lifespan=lifespan)
+    app = FastAPI(title="Wildberries Mesh", version="0.3.0", lifespan=lifespan)
     app.include_router(inventory_router(db, config, ledger))
     app.include_router(order_router(Orders(db, config, routing, ledger)))
+    app.include_router(analytics_router(db, config, ledger))
 
     @app.get("/api/health")
     def health() -> dict[str, str]:
+        with db.transaction() as session:
+            session.scalar(select(Point.id).limit(1))
         return {"status": "ok"}
 
     @app.get("/api/operations")
@@ -72,6 +79,10 @@ def create_app(
                 pricing_pending=False, items=items, total_kopecks=sum(item.amount_kopecks for item in items),
             )
 
+    frontend = ROOT / "frontend" / "dist"
+    if (frontend / "index.html").is_file():
+        # Client-side navigation uses URL fragments, leaving API paths independent.
+        app.mount("/", StaticFiles(directory=frontend, html=True), name="frontend")
     return app
 
 

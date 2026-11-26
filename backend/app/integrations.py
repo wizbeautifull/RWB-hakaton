@@ -144,7 +144,10 @@ class PilotRouting:
             product_id=request.sku, quantity=request.quantity, wb_club=request.wb_club,
             pickup_pvz_id=pickup, now=request.requested_at, deadline=request.promised_by,
             pickup_points=tuple(points.values()), direct_trips=tuple(trips), hub=hub,
-            stock=tuple(Stock(product_id=request.sku, pvz_id=row.point_id, available=row.available)
+            stock=tuple(Stock(
+                product_id=request.sku, pvz_id=row.point_id, available=row.available,
+                extra_storage_kopecks=row.extra_storage_kopecks,
+            )
                         for row in request.stock),
         )
         if request.replan_cause:
