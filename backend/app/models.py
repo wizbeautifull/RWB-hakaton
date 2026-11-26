@@ -12,6 +12,15 @@ class Point(Base):
     capacity_cm3: Mapped[int]
 
 
+class PointLocation(Base):
+    __tablename__ = "point_locations"
+
+    point_id: Mapped[str] = mapped_column(ForeignKey("points.id"), primary_key=True)
+    longitude: Mapped[float]
+    latitude: Mapped[float]
+    address: Mapped[str | None]
+
+
 class Seller(Base):
     __tablename__ = "sellers"
 

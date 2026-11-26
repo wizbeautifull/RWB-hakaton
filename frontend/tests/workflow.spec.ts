@@ -28,6 +28,7 @@ async function openPickupOrder(pickup: Page, buyer: Page, point: string) {
 test('customer, pickup and seller sites share live stock and order status', async ({ page, context, request }) => {
   const pickup = await context.newPage();
   const seller = await context.newPage();
+  await seller.route('https://yandex.ru/map-widget/**', route => route.fulfill({ contentType: 'text/html', body: 'Map widget' }));
   await Promise.all([page.goto('/'), pickup.goto('/pvz/'), seller.goto('/seller/')]);
   await expect(page).toHaveTitle('Wildberries Mesh');
   await expect(pickup).toHaveTitle('Wildberries Mesh · ПВЗ');
@@ -46,10 +47,25 @@ test('customer, pickup and seller sites share live stock and order status', asyn
 
   const register = pickup.getByRole('link', { name: 'Зарегистрировать ПВЗ' });
   await expect(register).toHaveAttribute('href', 'https://pvz.wb.ru');
-  for (const [id, name] of [['A', 'ПВЗ А'], ['B', 'ПВЗ Б']]) {
-    const response = await request.put(`/api/points/${id}`, { data: { name, capacity_cm3: 1000 } });
+  for (const [id, name, longitude] of [['A', 'ПВЗ А', 37.5979], ['B', 'ПВЗ Б', 37.6559]] as const) {
+    const response = await request.put(`/api/points/${id}`, { data: {
+      name, capacity_cm3: 1000, location: { longitude, latitude: 55.7521 },
+    } });
     expect(response.ok()).toBe(true);
   }
+  await seller.bringToFront();
+  const supply = seller.getByRole('region', { name: 'Куда привезти поставку' });
+  await expect(supply.getByTitle('Яндекс Карты · ПВЗ Wildberries')).toBeVisible({ timeout: 10_000 });
+  const pointA = supply.getByRole('button', { name: /^ПВЗ А\s/ });
+  const pointB = supply.getByRole('button', { name: /^ПВЗ Б\s/ });
+  const quantity = supply.getByLabel('Количество в поставке, шт.');
+  await quantity.fill('10');
+  await expect(pointA).toBeDisabled();
+  await expect(pointB).toBeDisabled();
+  await quantity.fill('9');
+  await pointA.click();
+  await expect(supply.getByText('Выбран ПВЗ А')).toBeVisible();
+  await expect(supply.getByTitle('Яндекс Карты · ПВЗ Wildberries')).toHaveAttribute('src', /ll=37\.5979%2C55\.7521/);
   await pickup.getByLabel('Рабочая точка').selectOption('A');
   const acceptBatch = pickup.getByRole('button', { name: 'Принять партию' });
   await acceptBatch.click();
@@ -70,6 +86,11 @@ test('customer, pickup and seller sites share live stock and order status', asyn
   const stockRow = pickup.getByRole('row').filter({ hasText: 'lot-e2e' });
   await expect(stockRow.getByRole('cell', { name: 'Магазин электроники' })).toBeVisible();
   await seller.bringToFront();
+  await expect(pointA).toBeDisabled({ timeout: 10_000 });
+  await expect(pointB).toBeEnabled();
+  await expect(supply.getByText(/В выбранном ПВЗ сейчас недостаточно места/)).toBeVisible();
+  await pointB.click();
+  await expect(supply.getByText('Выбран ПВЗ Б')).toBeVisible();
   await expect(seller.getByText('lot-e2e')).toBeVisible({ timeout: 10_000 });
   await expect(seller.getByText('3 шт.', { exact: true }).first()).toBeVisible();
 

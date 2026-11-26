@@ -16,10 +16,18 @@ def seed(base_url: str) -> None:
         with urlopen(request, timeout=10) as response:
             return json.load(response)
 
-    existing = {point["id"] for point in api("/points")}
-    for code, name, capacity in (("A", "ПВЗ А", 1000), ("B", "ПВЗ Б", 1000), ("C", "ПВЗ В", 1500)):
-        if code not in existing:
-            api(f"/points/{code}", "PUT", {"name": name, "capacity_cm3": capacity})
+    existing = {point["id"]: point for point in api("/points")}
+    for code, name, capacity, longitude, latitude, area in (
+        ("A", "ПВЗ А", 1000, 37.5979, 55.7521, "Москва, район Арбат · демоточка"),
+        ("B", "ПВЗ Б", 1000, 37.6559, 55.7417, "Москва, Таганский район · демоточка"),
+        ("C", "ПВЗ В", 1500, 37.6237, 55.7669, "Москва, Мещанский район · демоточка"),
+    ):
+        point = existing.get(code)
+        if point is None or point["name"] == name and not point.get("location"):
+            api(f"/points/{code}", "PUT", {
+                "name": name, "capacity_cm3": point["capacity_cm3"] if point else capacity,
+                "location": {"longitude": longitude, "latitude": latitude, "address": area},
+            })
 
     for batch_id, sku, quantity, days in (
         ("demo-cables", "CABLE", 3, 1),

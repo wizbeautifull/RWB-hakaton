@@ -138,6 +138,17 @@ def test_seller_name_applies_to_existing_stock_for_the_same_seller(api):
     assert stock(api, "A")["seller_name"] == named["seller_name"]
 
 
+def test_point_location_preserves_legacy_point_registration(api):
+    data = {"name": "ПВЗ A", "capacity_cm3": 1000}
+    location = {"longitude": 37.5979, "latitude": 55.7521, "address": "Москва, район Арбат"}
+    assert api.put("/api/points/A", json={**data, "location": location}).json()["location"] == location
+    assert api.put("/api/points/A", json=data).json()["location"] == location
+    assert api.put("/api/points/B", json={**data, "location": {**location, "latitude": 100}}).status_code == 422
+    assert {point["id"]: point["location"] for point in api.get("/api/points").json()} == {
+        "A": location, "B": None, "C": None,
+    }
+
+
 def test_shelf_reserve_and_cancel_across_batches(api):
     receive(api, quantity=1, days=8)
     receive(api, quantity=2, batch_id="new")

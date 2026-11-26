@@ -4,7 +4,7 @@ from sqlalchemy import select
 from ..config import PilotConfig
 from ..contracts import Code, OperationEvent
 from ..db import Database
-from ..models import Point, Product
+from ..models import Point, PointLocation, Product
 from ..operations import reject
 from ..pricing.ledger import PricingLedger
 from .service import (
@@ -23,17 +23,24 @@ def inventory_router(db: Database, pilot: PilotConfig, ledger: PricingLedger) ->
         with db.transaction(write=True) as session:
             point = session.get(Point, point_id)
             if point is None:
-                point = Point(id=point_id, **data.model_dump())
+                point = Point(id=point_id, name=data.name, capacity_cm3=data.capacity_cm3)
                 session.add(point)
                 session.flush()
             elif (point.name, point.capacity_cm3) != (data.name, data.capacity_cm3):
                 reject("point_conflict", "ПВЗ уже зарегистрирован с другими параметрами")
-            return point_view(session, point, reserve)
+            location = session.get(PointLocation, point_id)
+            if data.location is not None:
+                location = session.merge(PointLocation(point_id=point_id, **data.location.model_dump()))
+            elif "location" in data.model_fields_set and location is not None:
+                session.delete(location)
+                location = None
+            return point_view(session, point, reserve, location)
 
     @router.get("/points")
     def get_points() -> list[PointView]:
         with db.transaction() as session:
-            return [point_view(session, point, reserve) for point in session.scalars(select(Point).order_by(Point.id))]
+            points = session.execute(select(Point, PointLocation).outerjoin(PointLocation).order_by(Point.id))
+            return [point_view(session, point, reserve, location) for point, location in points]
 
     @router.put("/products/{sku}")
     def put_product(sku: Code, data: ProductRegistration) -> ProductView:

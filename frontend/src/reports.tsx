@@ -5,6 +5,7 @@ import type { Point, SellerMargin, Stock } from './api';
 import { demoOrder, demoStock } from './demo';
 import { dateTime, money, pointName, productName, routeNames, shortId, statusNames } from './format';
 import { StockTable } from './pvz';
+import { SellerSupply } from './seller-supply';
 import { Empty, ErrorMessage, Field, Heading, RouteMap, useResource } from './ui';
 import type { Mode } from './ui';
 
@@ -18,8 +19,9 @@ export function Seller({ mode, points }: { mode: Mode; points: Point[] }) {
       && (!point || item.point_id === point)), []]), JSON.stringify([mode, seller, point]), mode === 'live' && !!seller);
   const [rows = [], orderMargins = []] = report.data ?? [];
   return <>
-    <Heading crumb="Продавец" title="Кабинет продавца" description="Остатки, срок хранения и расчёт прибыли по заказам."/>
+    <Heading crumb="Продавец" title="Кабинет продавца" description="Подбор ПВЗ для поставки, остатки и прибыль по заказам."/>
     <div className="hero form-stack" data-enter>
+      <SellerSupply points={points} mode={mode}/>
       <form className="card seller-filter" onSubmit={event => {event.preventDefault(); setSeller(String(new FormData(event.currentTarget).get('seller')).trim());}}>
         <Field label="Код продавца"><input name="seller" defaultValue={seller} placeholder="seller-1" maxLength={80} required/></Field>
         <Field label="Пункт выдачи"><select value={point} onChange={event => setPoint(event.target.value)}><option value="">Все точки</option>{points.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></Field>

@@ -1,8 +1,10 @@
 import type { Order, Point, Product, Stock } from './api';
 
 export const demoPoints: Point[] = [
-  { id: 'A', name: 'ПВЗ Арбат', capacity_cm3: 1000, usable_capacity_cm3: 950, occupied_volume_cm3: 300, free_volume_cm3: 650 },
-  { id: 'B', name: 'ПВЗ Таганка', capacity_cm3: 1000, usable_capacity_cm3: 950, occupied_volume_cm3: 0, free_volume_cm3: 950 },
+  { id: 'A', name: 'ПВЗ Арбат', capacity_cm3: 1000, usable_capacity_cm3: 950, occupied_volume_cm3: 300, free_volume_cm3: 650,
+    location: { longitude: 37.5979, latitude: 55.7521, address: 'Москва, район Арбат · демоточка' } },
+  { id: 'B', name: 'ПВЗ Таганка', capacity_cm3: 1000, usable_capacity_cm3: 950, occupied_volume_cm3: 0, free_volume_cm3: 950,
+    location: { longitude: 37.6559, latitude: 55.7417, address: 'Москва, Таганский район · демоточка' } },
 ];
 export const demoProducts: Product[] = [{ sku: 'CABLE', seller_id: 'seller-1', unit_volume_cm3: 100 }];
 const date = (minutes: number) => new Date(Date.now() + minutes * 60000).toISOString();

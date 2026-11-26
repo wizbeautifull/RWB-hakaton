@@ -1,4 +1,5 @@
-export type Point = { id: string; name: string; capacity_cm3: number; usable_capacity_cm3: number; occupied_volume_cm3: number; free_volume_cm3: number };
+export type PointLocation = { longitude: number; latitude: number; address?: string | null };
+export type Point = { id: string; name: string; capacity_cm3: number; usable_capacity_cm3: number; occupied_volume_cm3: number; free_volume_cm3: number; location?: PointLocation | null };
 export type Product = { sku: string; seller_id: string; unit_volume_cm3: number };
 export type Stock = Product & {
   seller_name: string | null;
@@ -95,6 +96,7 @@ const query = (path: string, params: Record<string, string>) => path + '?' + new
 export const api = {
   health: () => request<{status: string}>('/health', { signal: AbortSignal.timeout(1800) }),
   points: () => request<Point[]>('/points'),
+  mapsConfig: () => request<{ yandex_api_key: string | null }>('/maps/config'),
   products: () => request<Product[]>('/products'),
   orders: (point?: string, actionable = false) => request<Order[]>(query('/orders', { ...(point ? { point_id: point } : {}), actionable: String(actionable) })),
   order: (id: string) => request<Order>('/orders/' + encode(id)),

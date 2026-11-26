@@ -60,6 +60,10 @@ def create_app(
             session.scalar(select(Point.id).limit(1))
         return {"status": "ok"}
 
+    @app.get("/api/maps/config")
+    def maps_config() -> dict[str, str | None]:
+        return {"yandex_api_key": os.environ.get("MESH_YANDEX_MAPS_KEY", "").strip() or None}
+
     @app.get("/api/operations")
     def operations(
         point_id: Code | None = None, order_id: Code | None = None, batch_id: Code | None = None,

@@ -3,6 +3,8 @@ services:
     build: .
     ports:
       - "127.0.0.1:${MESH_PORT:-8000}:8000"
+    environment:
+      MESH_YANDEX_MAPS_KEY: "${MESH_YANDEX_MAPS_KEY:-}"
     volumes:
       - orders:/data
     healthcheck:

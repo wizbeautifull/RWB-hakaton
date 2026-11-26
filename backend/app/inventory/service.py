@@ -1,19 +1,26 @@
 from datetime import datetime, timezone
 from typing import Literal
 
-from pydantic import AwareDatetime
+from pydantic import AwareDatetime, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..contracts import APIModel, Code, Command, OperationEvent, Quantity, Volume, utc_now
-from ..models import Batch, Operation, Point, Product, Seller, Stock
+from ..models import Batch, Operation, Point, PointLocation, Product, Seller, Stock
 from ..operations import OperationLog, reject
 from ..pricing.ledger import PricingLedger
+
+
+class Location(APIModel):
+    longitude: float = Field(ge=-180, le=180)
+    latitude: float = Field(ge=-90, le=90)
+    address: str | None = Field(default=None, min_length=1, max_length=240)
 
 
 class PointInput(APIModel):
     name: Code
     capacity_cm3: Volume
+    location: Location | None = None
 
 
 class PointView(PointInput):
@@ -104,7 +111,9 @@ def register_product(session: Session, sku: str, data: ProductRegistration) -> P
     return product
 
 
-def point_view(session: Session, point: Point, reserve_percent: int) -> PointView:
+def point_view(
+    session: Session, point: Point, reserve_percent: int, location: PointLocation | None = None,
+) -> PointView:
     physical = Stock.available + Stock.reserved + Stock.ready + Stock.blocked + Stock.damaged
     occupied = session.scalar(
         select(func.coalesce(func.sum(physical * Product.unit_volume_cm3), 0))
@@ -113,6 +122,7 @@ def point_view(session: Session, point: Point, reserve_percent: int) -> PointVie
     usable = point.capacity_cm3 * (100 - reserve_percent) // 100
     return PointView(
         id=point.id, name=point.name, capacity_cm3=point.capacity_cm3,
+        location=Location.model_validate(location) if location is not None else None,
         usable_capacity_cm3=usable, occupied_volume_cm3=occupied,
         free_volume_cm3=max(0, usable - occupied),
     )
