@@ -36,6 +36,10 @@ class PilotRouting:
         self.schedule = schedule
         self.pricing = pricing
 
+    def city_id(self, point_id: str) -> str:
+        point = self.schedule.points.get(point_id)
+        return point.city_id if point else "pilot-city"
+
     def point(
         self, point_id: str, start: datetime, usage: dict[str, ResourceUsage],
         *, receiving_capacity: int | None = None,
@@ -52,7 +56,7 @@ class PilotRouting:
                 for offset in range(3)
             )
             point = PickupPoint(
-                pvz_id=point_id, city_id="pilot-city", pack_minutes=plan.shelf_minutes,
+                pvz_id=point_id, city_id=self.city_id(point_id), pack_minutes=plan.shelf_minutes,
                 load_minutes=plan.load_minutes, receive_minutes=plan.receive_minutes,
                 pack_windows=windows, load_windows=windows, receive_windows=windows,
             )
@@ -133,19 +137,21 @@ class PilotRouting:
     def choose(self, request: RoutingRequest) -> RouteDecision:
         pickup = request.pickup_point_id
         free_units = request.pickup_free_volume_cm3 // request.unit_volume_cm3
+        shelf_only = request.fulfillment == "shelf_today"
+        stock = [item for item in request.stock if not shelf_only or item.point_id == pickup]
         points, window_resources = {}, {}
-        for point_id in [pickup, *(item.point_id for item in request.stock if item.point_id != pickup)]:
+        for point_id in [pickup, *(item.point_id for item in stock if item.point_id != pickup)]:
             points[point_id], resources = self.point(
                 point_id, request.requested_at, request.resource_usage,
                 receiving_capacity=free_units if point_id == pickup else None,
             )
             window_resources.update(resources)
-        trips, trip_resources = self.trips(request, points)
+        trips, trip_resources = ([], {}) if shelf_only else self.trips(request, points)
         hub_minutes = self.schedule.hub_minutes
         hub = (
             HubQuote(source_id="HUB-1", ready_at=request.requested_at + timedelta(minutes=hub_minutes),
                      available=free_units)
-            if hub_minutes is not None else None
+            if hub_minutes is not None and not shelf_only else None
         )
         snapshot = RouteRequest(
             product_id=request.sku, quantity=request.quantity, wb_club=request.wb_club,
@@ -155,16 +161,17 @@ class PilotRouting:
                 product_id=request.sku, pvz_id=row.point_id, available=row.available,
                 extra_storage_kopecks=row.extra_storage_kopecks,
             )
-                        for row in request.stock),
+                        for row in stock),
         )
         if request.replan_cause:
             decision = recalculate_before_dispatch(
                 snapshot, self.pricing, failure=request.replan_cause,
                 excluded_source_ids=frozenset(request.excluded_source_ids),
                 excluded_trip_ids=frozenset(request.excluded_trip_ids),
+                fulfillment=request.fulfillment,
             )
         else:
-            decision = choose_route(snapshot, self.pricing)
+            decision = choose_route(snapshot, self.pricing, fulfillment=request.fulfillment)
         selected = decision.selected_option
         if selected is None:
             raise NoRoute(decision.reason, decision.reason_code)

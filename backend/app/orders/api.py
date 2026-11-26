@@ -1,7 +1,7 @@
 from fastapi import APIRouter
 from sqlalchemy import or_, select
 
-from ..contracts import Code, OrderRequest, OrderStatus
+from ..contracts import CheckoutOptions, CheckoutRequest, Code, OrderRequest, OrderStatus
 from ..inventory.service import get_point
 from ..models import Order
 from .service import OrderCommand, Orders, OrderView, get_order
@@ -13,6 +13,10 @@ def order_router(orders: Orders) -> APIRouter:
     @router.post("", status_code=201)
     def post_order(command: OrderRequest) -> OrderView:
         return orders.create(command)
+
+    @router.post("/options")
+    def checkout_options(command: CheckoutRequest) -> CheckoutOptions:
+        return orders.options(command)
 
     @router.get("")
     def get_orders(

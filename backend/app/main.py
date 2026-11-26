@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import inspect, select
 
 from .analytics import analytics_router
 from .config import ROOT, PilotConfig, load_config
@@ -39,8 +39,11 @@ def create_app(
     async def lifespan(_: FastAPI):
         try:
             with db.transaction(write=True) as session:
-                Base.metadata.create_all(session.connection())
-                accrual_metadata.create_all(session.connection())
+                connection = session.connection()
+                Base.metadata.create_all(connection)
+                if "fulfillment" not in {column["name"] for column in inspect(connection).get_columns("orders")}:
+                    connection.exec_driver_sql("ALTER TABLE orders ADD COLUMN fulfillment VARCHAR")
+                accrual_metadata.create_all(connection)
                 ledger.backfill(session)
             yield
         finally:

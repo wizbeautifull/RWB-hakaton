@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, time, timedelta, timezone
 from math import ceil
 from uuid import uuid4
 
@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from ..config import PilotConfig
 from ..contracts import (
-    APIModel, Accrual, Action, Code, Command, OperationEvent, OrderRequest, OrderStatus,
+    APIModel, Accrual, Action, CheckoutOptions, CheckoutRequest, Code, Command, OperationEvent, OrderRequest, OrderStatus,
     Quantity, RouteDecision, RoutingRequest, RoutingStock, TransitRequest, utc_now,
 )
 from ..db import Database
@@ -17,8 +17,16 @@ from ..inventory.service import get_point, get_product, point_view, require_spac
 from ..models import Allocation, Batch, Order, Product, Stock
 from ..operations import OperationLog, read_events, reject
 from ..pricing.ledger import PricingLedger
-from ..routing.models import RouteMilestone
+from ..routing.models import Fulfillment, RouteMilestone
 from . import reservations
+
+MOSCOW = timezone(timedelta(hours=3))
+CHECKOUT_FIELDS = ("fulfillment", "shelf_point_id", "shelf_date")
+
+
+def shelf_deadline(request: RoutingRequest) -> datetime:
+    today = request.requested_at.astimezone(MOSCOW).date()
+    return min(request.promised_by, datetime.combine(today, time.max, tzinfo=MOSCOW))
 
 
 class OrderCommand(Command):
@@ -48,6 +56,7 @@ class OrderView(APIModel):
     sku: Code
     quantity: Quantity
     wb_club: bool
+    fulfillment: Fulfillment | None
     pickup_point_id: Code
     source_point_id: Code | None
     promised_by: AwareDatetime
@@ -104,7 +113,7 @@ class Orders:
         accruals = self.ledger.list(session, order_id=order.id)
         return OrderView(
             id=order.id, scan_code=order.scan_code, sku=order.sku, quantity=order.quantity,
-            wb_club=order.wb_club, pickup_point_id=order.pickup_point_id,
+            wb_club=order.wb_club, fulfillment=order.fulfillment, pickup_point_id=order.pickup_point_id,
             source_point_id=order.source_point_id, promised_by=order.promised_by,
             created_at=order.created_at, status=order.status, route=order.route,
             route_failure=order.route_failure, actual_position=order.actual_position,
@@ -138,12 +147,57 @@ class Orders:
             balance.available += stock.available
         return RoutingRequest(
             sku=order.sku, quantity=order.quantity, unit_volume_cm3=product.unit_volume_cm3,
-            wb_club=order.wb_club, pickup_point_id=pickup.id, requested_at=now,
+            wb_club=order.wb_club, fulfillment=order.fulfillment,
+            pickup_point_id=pickup.id, requested_at=now,
             promised_by=order.promised_by,
             pickup_free_volume_cm3=self.destination_space(session, order),
             stock=list(balances.values()),
             resource_usage=reservations.resource_usage(session, now),
         )
+
+    def options(self, command: CheckoutRequest) -> CheckoutOptions:
+        order = Order(
+            id=uuid4().hex, sku=command.sku, quantity=command.quantity, wb_club=command.wb_club,
+            pickup_point_id=command.pickup_point_id, promised_by=command.promised_by.isoformat(),
+            fulfillment="delivery",
+        )
+        with self.db.transaction() as session:
+            snapshot = self.routing_request(session, order)
+
+        delivery, failure = None, None
+        try:
+            delivery = self.routing.choose(snapshot)
+        except NoRoute as error:
+            failure = str(error)
+
+        deadline = shelf_deadline(snapshot)
+        city = self.routing.city_id(snapshot.pickup_point_id)
+        shelf = []
+        for stock in snapshot.stock:
+            if stock.available < command.quantity or self.routing.city_id(stock.point_id) != city:
+                continue
+            try:
+                shelf.append(self.routing.choose(snapshot.model_copy(update={
+                    "pickup_point_id": stock.point_id, "promised_by": deadline, "fulfillment": "shelf_today",
+                })))
+            except NoRoute:
+                continue
+        return CheckoutOptions(
+            delivery=delivery, delivery_failure=failure,
+            shelf_today=sorted(shelf, key=lambda route: (route.ready_at, route.pickup_point_id)),
+            shelf_date=snapshot.requested_at.astimezone(MOSCOW).date(),
+        )
+
+    def confirmation_request(self, session: Session, order: Order, command: OrderRequest) -> RoutingRequest:
+        request = self.routing_request(session, order)
+        if command.fulfillment != "shelf_today":
+            return request
+        original = get_point(session, command.pickup_point_id)
+        if self.routing.city_id(original.id) != self.routing.city_id(request.pickup_point_id):
+            reject("shelf_other_city", "Выберите ПВЗ в том же городе", 422)
+        if request.requested_at.astimezone(MOSCOW).date() != command.shelf_date:
+            reject("shelf_offer_expired", "Дата самовывоза изменилась. Проверьте варианты получения ещё раз")
+        return request.model_copy(update={"promised_by": shelf_deadline(request)})
 
     def destination_space(self, session: Session, order: Order) -> int:
         pickup = get_point(session, order.pickup_point_id)
@@ -164,11 +218,15 @@ class Orders:
         pickup = order.pickup_point_id
         valid_source = (
             (route.route_type == "hub" and source is None)
-            or (order.wb_club and source is not None and source not in request.excluded_source_ids
+            or ((order.wb_club or request.fulfillment == "shelf_today")
+                and source is not None and source not in request.excluded_source_ids
                 and (route.route_type == "shelf") == (source == pickup))
         )
+        valid_fulfillment = request.fulfillment is None or (
+            (request.fulfillment == "shelf_today") == (route.route_type == "shelf")
+        )
         if (
-            not valid_source or route.pickup_point_id != pickup
+            not valid_source or not valid_fulfillment or route.pickup_point_id != pickup
             or route.ready_at is None or not request.requested_at <= route.ready_at <= request.promised_by
         ):
             reject("invalid_route", "Модуль маршрутизации вернул несовместимый маршрут", 502)
@@ -203,15 +261,16 @@ class Orders:
         order_id = uuid4().hex
         order = Order(
             id=order_id, scan_code=uuid4().hex, sku=command.sku, quantity=command.quantity,
-            wb_club=command.wb_club, pickup_point_id=command.pickup_point_id,
+            wb_club=command.wb_club, fulfillment=command.fulfillment,
+            pickup_point_id=command.shelf_point_id or command.pickup_point_id,
             promised_by=command.promised_by.isoformat(), created_at=utc_now().isoformat(),
             status="awaiting_route",
         )
         with self.db.transaction() as session:
-            replay = OperationLog(session, "create_order", command).replay()
+            replay = OperationLog(session, "create_order", command, omit_if_none=CHECKOUT_FIELDS).replay()
             if replay:
                 return self.view(session, get_order(session, replay.order_id))
-            snapshot = self.routing_request(session, order)
+            snapshot = self.confirmation_request(session, order, command)
         try:
             decision = self.routing.choose(snapshot)
             failure = None
@@ -219,11 +278,11 @@ class Orders:
             decision, failure = None, error
 
         with self.db.transaction(write=True) as session:
-            log = OperationLog(session, "create_order", command)
+            log = OperationLog(session, "create_order", command, omit_if_none=CHECKOUT_FIELDS)
             replay = log.replay()
             if replay:
                 return self.view(session, get_order(session, replay.order_id))
-            current = self.routing_request(session, order)
+            current = self.confirmation_request(session, order, command)
             # Replan on concurrent inventory, window or trip changes, or an expired plan.
             if (
                 snapshot.model_copy(update={"requested_at": current.requested_at}) != current
@@ -237,7 +296,15 @@ class Orders:
                 except NoRoute as error:
                     decision, failure = None, error
             if decision is None:
+                if command.fulfillment is not None:
+                    reject(
+                        "checkout_option_unavailable",
+                        f"{failure} Проверьте варианты получения ещё раз.",
+                        reason_code=failure.reason_code,
+                    )
                 reject("no_route", str(failure), reason_code=failure.reason_code)
+            if order.fulfillment == "shelf_today":
+                order.promised_by = current.promised_by.isoformat()
             session.add(order)
             session.flush()
             self.assign(session, order, current, decision)

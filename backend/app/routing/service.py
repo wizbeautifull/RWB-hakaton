@@ -11,6 +11,7 @@ from ..pricing.costs import CostBreakdown, PilotPricing, direct_breakdown
 from .models import (
     CandidateEvaluation,
     DirectTrip,
+    Fulfillment,
     InTransitUpdate,
     PickupPoint,
     RouteDecision,
@@ -30,6 +31,7 @@ REASONS = {
     "shelf_after_deadline": "Сборка с полки завершается после обещанного срока.",
     "shelf_more_expensive": "С учётом хранения выдача с полки дороже доступного хаба.",
     "shelf_priority": "Выдача с полки уже доступна к сроку и имеет приоритет.",
+    "delivery_requested": "Покупатель выбрал доставку в выбранный ПВЗ.",
     "direct_ready": "Прямой рейс укладывается в срок, окна и доступную ёмкость.",
     "direct_cheaper": "Прямой рейс укладывается в срок и дешевле хаба.",
     "direct_only": "Прямой рейс укладывается в срок, хаб сейчас недоступен.",
@@ -349,13 +351,15 @@ def _direct_blocker(
     return "no_city_stock"
 
 
-def choose_route(request: RouteRequest, pricing: PilotPricing) -> RouteDecision:
+def choose_route(
+    request: RouteRequest, pricing: PilotPricing, *, fulfillment: Fulfillment | None = None,
+) -> RouteDecision:
     """Выбор по порядку бизнес-правил. Варианты без свободного окна исключаются до сравнения цен."""
     if request.now > request.deadline:
         return _decision(request, None, "deadline_passed")
 
     hub = _hub(request, pricing)
-    if not request.wb_club:
+    if not request.wb_club and fulfillment != "shelf_today":
         candidates = (
             _candidate(RouteType.SHELF, "club_required", status="skipped"),
             _candidate(RouteType.DIRECT, "club_required", status="skipped"),
@@ -380,7 +384,13 @@ def choose_route(request: RouteRequest, pricing: PilotPricing) -> RouteDecision:
     storage = {
         row.pvz_id: row.extra_storage_kopecks for row in request.stock if row.product_id == request.product_id
     }
-    shelf = _shelf(request, pricing, target, available.get(target.pvz_id, 0), storage.get(target.pvz_id, 0))
+    shelf = (
+        _candidate(RouteType.SHELF, "delivery_requested", status="skipped")
+        if fulfillment == "delivery"
+        else _shelf(request, pricing, target, available.get(target.pvz_id, 0), storage.get(target.pvz_id, 0))
+    )
+    if fulfillment == "shelf_today":
+        return _decision(request, shelf if shelf.status == "eligible" else None, shelf.reason_code, (shelf,))
     if shelf.status == "eligible":
         if hub.status != "eligible" or shelf.quote.cost_kopecks <= hub.quote.cost_kopecks:
             candidates = (shelf, _candidate(RouteType.DIRECT, "shelf_priority", status="skipped"), hub)
@@ -459,6 +469,7 @@ def recalculate_before_dispatch(
     failure: str,
     excluded_source_ids: frozenset[str] = frozenset(),
     excluded_trip_ids: frozenset[str] = frozenset(),
+    fulfillment: Fulfillment | None = None,
 ) -> RouteDecision:
     """Сравнивает обновлённые предложения после сбоя и сохраняет причину пересчёта."""
     hub = request.hub
@@ -473,7 +484,7 @@ def recalculate_before_dispatch(
             "hub": hub,
         }
     )
-    decision = choose_route(snapshot, pricing)
+    decision = choose_route(snapshot, pricing, fulfillment=fulfillment)
     return decision.model_copy(
         update={
             "reason": f"Пересчёт ({failure}). {decision.reason}",

@@ -402,6 +402,7 @@ def test_ledger_upgrades_existing_events_without_repricing(tmp_path):
     engine = create_engine(f"sqlite:///{path}")
     with engine.begin() as connection:
         # V1 had the operation log and orders, but no ledger or route reservations.
+        connection.execute(text("ALTER TABLE orders DROP COLUMN fulfillment"))
         connection.execute(text("DROP TABLE logistics_accruals"))
         connection.execute(text("DROP TABLE route_reservations"))
         connection.execute(text(
@@ -499,3 +500,87 @@ def test_dashboard_margins_and_return(api):
     returned = api.get("/api/analytics/sellers/seller").json()[0]
     assert returned["revenue_kopecks"] == returned["goods_kopecks"] == 0
     assert returned["profit_kopecks"] == -7600
+
+
+def quote_checkout(client, **kwargs):
+    payload = order_payload(**kwargs)
+    options = client.post("/api/orders/options", json={k: v for k, v in payload.items() if k != "request_id"})
+    assert options.status_code == 200, options.text
+    return payload, options.json()
+
+
+def test_shelf_checkout_reserves_only_on_confirmation(api, monkeypatch):
+    from backend.app.orders import service
+
+    now = datetime.combine(utc_now().date(), datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=9)
+    monkeypatch.setattr(service, "utc_now", lambda: now)
+    receive(api, quantity=1)
+    payload, options = quote_checkout(api, wb_club=False)
+    assert options["delivery"]["route_type"] == "hub"
+    assert [offer["pickup_point_id"] for offer in options["shelf_today"]] == ["A"]
+    assert stock(api, "A")["available"] == 1
+    assert api.get("/api/orders").json() == []
+    selection = {
+        **payload, "fulfillment": "shelf_today", "shelf_point_id": "A", "shelf_date": options["shelf_date"],
+    }
+    response = api.post("/api/orders", json=selection)
+    assert response.status_code == 201, response.text
+    order = response.json()
+    assert (order["fulfillment"], order["route"]["route_type"], order["pickup_point_id"]) == (
+        "shelf_today", "shelf", "A",
+    )
+    assert stock(api, "A")["available"] == 0
+    assert api.post("/api/orders", json=selection).json()["id"] == order["id"]
+    unavailable = api.post("/api/orders", json={**selection, "request_id": "late-to-stock"})
+    assert unavailable.status_code == 409
+    assert unavailable.json()["detail"]["code"] == "checkout_option_unavailable"
+    packed = act(api, order, "pack", "A")
+    assert packed["status"] == "ready"
+    assert packed["next_actions"][0] == {"type": "issue", "point_id": "A"}
+    assert act(api, order, "issue", "A")["status"] == "delivered"
+
+
+def test_checkout_filters_other_cities_and_tomorrow(tmp_path, monkeypatch):
+    from backend.app.orders import service
+
+    now = datetime.combine(utc_now().date(), datetime.min.time(), tzinfo=timezone.utc) + timedelta(hours=20, minutes=40)
+    monkeypatch.setattr(service, "utc_now", lambda: now)
+    config = load_config()
+    today_window = Window(start=now, end=now + timedelta(minutes=19), free_units=10)
+    tomorrow_window = Window(start=now + timedelta(minutes=21), end=now + timedelta(hours=2), free_units=10)
+    for point_id, city in (("A", "city"), ("B", "city"), ("C", "other")):
+        config.demo_routing.points[point_id] = PickupPoint(
+            pvz_id=point_id, city_id=city, pack_minutes=10, load_minutes=5, receive_minutes=5,
+            pack_windows=(today_window, tomorrow_window),
+        )
+    with TestClient(create_app(str(tmp_path / "checkout.sqlite3"), config=config)) as client:
+        register_points(client)
+        receive(client, "B", batch_id="lot-b")
+        receive(client, "C", batch_id="lot-c")
+        payload, options = quote_checkout(client, point="A")
+        assert [route["pickup_point_id"] for route in options["shelf_today"]] == ["B"]
+        rejected = client.post("/api/orders", json={
+            **payload, "fulfillment": "shelf_today", "shelf_point_id": "C", "shelf_date": options["shelf_date"],
+        })
+        assert rejected.json()["detail"]["code"] == "shelf_other_city"
+
+        config.demo_routing.points["B"] = config.demo_routing.points["B"].model_copy(update={"pack_minutes": 30})
+        _, later = quote_checkout(client, point="A")
+        assert later["shelf_today"] == []
+
+        monkeypatch.setattr(service, "utc_now", lambda: now + timedelta(minutes=25))
+        expired = client.post("/api/orders", json={
+            **payload, "fulfillment": "shelf_today", "shelf_point_id": "B", "shelf_date": options["shelf_date"],
+        })
+        assert expired.json()["detail"]["code"] == "shelf_offer_expired"
+
+
+def test_delivery_choice_bypasses_shelf_and_retains_delivery_point(api):
+    receive(api, "A")
+    payload, options = quote_checkout(api, point="A", wb_club=True)
+    assert options["delivery"]["route_type"] == "hub"
+    result = api.post("/api/orders", json={**payload, "fulfillment": "delivery"})
+    assert result.status_code == 201
+    assert result.json()["pickup_point_id"] == "A"
+    assert result.json()["route"]["route_type"] == "hub"
+    assert stock(api, "A")["reserved"] == 0

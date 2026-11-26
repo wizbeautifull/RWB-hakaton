@@ -58,6 +58,7 @@ class Order(Base):
     sku: Mapped[str] = mapped_column(ForeignKey("products.sku"), index=True)
     quantity: Mapped[int]
     wb_club: Mapped[bool]
+    fulfillment: Mapped[str | None]
     pickup_point_id: Mapped[str] = mapped_column(ForeignKey("points.id"), index=True)
     source_point_id: Mapped[str | None] = mapped_column(ForeignKey("points.id"), index=True)
     promised_by: Mapped[str]

@@ -20,6 +20,13 @@ async function perform(page: Page, operation: string, scanCode: string) {
   await expect(modal).toBeHidden();
 }
 
+async function placeDelivery(page: Page) {
+  await page.getByRole('button', { name: 'Показать варианты' }).click();
+  await page.getByRole('radio', { name: /Дождаться доставки в ПВЗ/ }).check();
+  await page.getByRole('button', { name: 'Оформить доставку' }).click();
+  await page.getByRole('link', { name: 'Открыть заказ' }).click();
+}
+
 test('Wildberries Mesh processes a live order and shows the economics', async ({ page }) => {
   await page.goto('/');
   await expect(page).toHaveTitle('Wildberries Mesh');
@@ -48,8 +55,7 @@ test('Wildberries Mesh processes a live order and shows the economics', async ({
   await nav.getByRole('link', { name: 'Оформление' }).click();
   await page.getByLabel('Пункт выдачи').selectOption('B');
   await page.getByRole('switch', { name: /WB Клуб/ }).check();
-  await page.getByRole('button', { name: 'Оформить заказ' }).click();
-  await page.getByRole('link', { name: 'Открыть заказ' }).click();
+  await placeDelivery(page);
   await expect(page.getByText('Прямой рейс', { exact: true }).first()).toBeVisible();
   const scanCode = await page.locator('code').innerText();
   await page.getByRole('button', { name: 'Собрать заказ', exact: true }).click();
@@ -83,8 +89,7 @@ test('Wildberries Mesh processes a live order and shows the economics', async ({
   await expect(page.getByRole('heading', { name: 'Оформление заказа' })).toBeVisible();
   await page.getByLabel('Пункт выдачи').selectOption('B');
   await expect(page.getByRole('switch', { name: /WB Клуб/ })).not.toBeChecked();
-  await page.getByRole('button', { name: 'Оформить заказ' }).click();
-  await page.getByRole('link', { name: 'Открыть заказ' }).click();
+  await placeDelivery(page);
   await expect(page.getByText('Через хаб', { exact: true }).first()).toBeVisible();
   const hubCode = await page.locator('code').innerText();
   await perform(page, 'Подтвердить доставку хаба', hubCode);
@@ -104,4 +109,23 @@ test('Wildberries Mesh processes a live order and shows the economics', async ({
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole('heading', { name: 'Сравнение маршрутов' })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+
+  await nav.getByRole('link', { name: 'Оформление' }).click();
+  await expect(page.getByRole('heading', { name: 'Оформление заказа' })).toBeVisible();
+  await page.getByLabel('Пункт выдачи').selectOption('B');
+  const optionsResponse = page.waitForResponse(response => response.url().endsWith('/api/orders/options'));
+  await page.getByRole('button', { name: 'Показать варианты' }).click();
+  const options = await (await optionsResponse).json();
+  const shelf = page.getByRole('radio', { name: /Забрать сегодня с полки.*ПВЗ А/ });
+  await expect(page.getByRole('radio', { name: /Дождаться доставки в ПВЗ.*ПВЗ Б/ })).toBeVisible();
+  if (options.shelf_today.length) {
+    await shelf.check();
+    await page.getByRole('button', { name: 'Зарезервировать с полки' }).click();
+    await page.getByRole('link', { name: 'Открыть заказ' }).click();
+    await expect(page.getByText('Выдача с полки', { exact: true }).first()).toBeVisible();
+    await expect(page.getByText('1 шт. · выдача в ПВЗ А')).toBeVisible();
+  } else {
+    await expect(shelf).toHaveCount(0);
+    await expect(page.getByText(/Самовывоз сегодня недоступен/)).toBeVisible();
+  }
 });

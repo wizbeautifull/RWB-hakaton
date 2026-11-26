@@ -11,6 +11,7 @@ from ..pricing.costs import Contract, CostBreakdown, Count, Identifier, Money
 Units = Annotated[int, Field(strict=True, ge=0)]
 Duration = Annotated[int, Field(strict=True, gt=0, le=525_600)]
 Stage = Literal["pack", "load", "departure", "arrival", "receive", "hub_ready"]
+Fulfillment = Literal["delivery", "shelf_today"]
 
 
 def _utc(value: datetime) -> datetime:

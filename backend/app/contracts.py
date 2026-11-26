@@ -1,10 +1,10 @@
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Annotated, Literal
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from .pricing.costs import CostBreakdown
-from .routing.models import CandidateEvaluation, RouteMilestone
+from .routing.models import CandidateEvaluation, Fulfillment, RouteMilestone
 
 Code = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=80)]
 Quantity = Annotated[int, Field(gt=0, le=1_000_000, strict=True)]
@@ -32,12 +32,27 @@ class Command(APIModel):
     request_id: Code
 
 
-class OrderRequest(Command):
+class CheckoutRequest(APIModel):
     sku: Code
     quantity: Quantity = 1
     wb_club: bool
     pickup_point_id: Code
     promised_by: AwareDatetime
+
+
+class OrderRequest(CheckoutRequest, Command):
+    fulfillment: Fulfillment | None = None
+    shelf_point_id: Code | None = None
+    shelf_date: date | None = None
+
+    @model_validator(mode="after")
+    def validate_fulfillment(self):
+        if self.fulfillment == "shelf_today":
+            if self.shelf_point_id is None or self.shelf_date is None:
+                raise ValueError("Для самовывоза укажите ПВЗ и дату выдачи")
+        elif self.shelf_point_id is not None or self.shelf_date is not None:
+            raise ValueError("ПВЗ самовывоза и дата задаются только для выдачи с полки")
+        return self
 
 
 class RoutingStock(APIModel):
@@ -68,6 +83,7 @@ class RoutingRequest(APIModel):
     promised_by: AwareDatetime
     requested_at: AwareDatetime
     stock: list[RoutingStock]
+    fulfillment: Fulfillment | None = None
     excluded_source_ids: list[Code] = Field(default_factory=list)
     excluded_trip_ids: list[str] = Field(default_factory=list)
     replan_cause: str | None = None
@@ -96,6 +112,13 @@ class RouteDecision(RouteOption):
     arrival_at: AwareDatetime | None = None
     meets_deadline: bool | None = None
     resources: list[RouteResource] = Field(default_factory=list, exclude=True)
+
+
+class CheckoutOptions(APIModel):
+    delivery: RouteDecision | None = None
+    delivery_failure: str | None = None
+    shelf_today: list[RouteDecision]
+    shelf_date: date
 
 
 class TransitRequest(APIModel):

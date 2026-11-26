@@ -15,6 +15,12 @@ export type Route = Option & {
   alternatives: Option[]; evaluations: Evaluation[];
   milestones: { stage: string; starts_at: string; ends_at: string; pvz_id: string | null; window_id: string | null }[];
 };
+export type CheckoutDraft = {
+  sku: string; quantity: number; wb_club: boolean; pickup_point_id: string; promised_by: string;
+};
+export type CheckoutOptions = {
+  delivery: Route | null; delivery_failure: string | null; shelf_today: Route[]; shelf_date: string;
+};
 export type ActionType = 'pack' | 'handoff' | 'receive' | 'confirm_hub_delivery' | 'issue' | 'cancel' | 'shortage' | 'replan' | 'update_transit' | 'return_good' | 'return_damaged';
 export type NextAction = { type: ActionType; point_id: string };
 export type Operation = { event_id: string; type: string; point_id: string; occurred_at: string; quantity: number; order_id: string | null; batch_id: string | null; details: Record<string, unknown> };
@@ -105,6 +111,9 @@ export const api = {
     ...(returns ? { return_bps: String(Math.round(Number(returns) * 100)) } : {}),
   })),
   create: (body: Payload) => post<Order>('/orders', body),
+  checkoutOptions: (body: CheckoutDraft) => request<CheckoutOptions>('/orders/options', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  }),
   orderAction: (id: string, body: Payload) => post<Order>('/orders/' + encode(id) + '/actions', body),
   receipt: (body: Payload) => post('/batches', body),
   stockAction: (point: string, batch: string, storage: boolean, body: Payload) => post('/inventory/' + encode(point) + '/' + encode(batch) + (storage ? '/storage' : '/actions'), body),

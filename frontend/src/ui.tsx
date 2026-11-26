@@ -30,7 +30,7 @@ export function useSubmit<T>(save: (data: FormData) => Promise<T>, done: (value:
     catch (failure) { setError(failure); }
     finally { locked.current = false; setPending(false); }
   }
-  return { submit, pending, error };
+  return { submit, pending, error, clearError: () => setError(undefined) };
 }
 export const field = (data: FormData, key: string) => String(data.get(key) ?? '').trim();
 export function ErrorMessage({ error }: { error: unknown }) {
