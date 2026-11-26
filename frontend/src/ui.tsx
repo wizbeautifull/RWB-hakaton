@@ -6,13 +6,44 @@ import { ApiError } from './api';
 import { dateTime, pointName, routeNames, statusNames } from './format';
 
 export type Mode = 'checking' | 'demo' | 'live';
-export function useResource<T>(load: () => Promise<T>, key: string) {
+const SYNC_INTERVAL_MS = 4_000;
+
+export function useResource<T>(load: () => Promise<T>, key: string, watch = false) {
   const [state, setState] = useState<{ key: string; data?: T; error?: unknown }>({ key });
+  const loadRef = useRef(load);
+  useEffect(() => { loadRef.current = load; }, [load]);
   useEffect(() => {
     let current = true;
-    load().then(data => { if (current) setState({ key, data }); }, error => { if (current) setState({ key, error }); });
-    return () => { current = false; };
-  }, [key]);
+    let loading = false;
+    async function refresh() {
+      if (!current || loading) return;
+      loading = true;
+      try {
+        const data = await loadRef.current();
+        if (current) setState({ key, data });
+      } catch (error) {
+        if (current) setState(previous => ({
+          key, data: previous.key === key ? previous.data : undefined, error,
+        }));
+      } finally {
+        loading = false;
+      }
+    }
+    function refreshVisible() {
+      if (!document.hidden) void refresh();
+    }
+    void refresh();
+    if (!watch) return () => { current = false; };
+    const timer = window.setInterval(refreshVisible, SYNC_INTERVAL_MS);
+    document.addEventListener('visibilitychange', refreshVisible);
+    window.addEventListener('focus', refreshVisible);
+    return () => {
+      current = false;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', refreshVisible);
+      window.removeEventListener('focus', refreshVisible);
+    };
+  }, [key, watch]);
   return state.key === key ? state : { key };
 }
 export function useSubmit<T>(save: (data: FormData) => Promise<T>, done: (value: T) => void) {

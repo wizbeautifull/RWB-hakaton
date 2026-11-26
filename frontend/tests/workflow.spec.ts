@@ -27,22 +27,44 @@ async function placeDelivery(page: Page) {
   await page.getByRole('link', { name: 'Открыть заказ' }).click();
 }
 
-test('Wildberries Mesh processes a live order and shows the economics', async ({ page }) => {
-  await page.goto('/');
+async function openPickupOrder(pickup: Page, buyer: Page, point: string) {
+  const hash = new URL(buyer.url()).hash;
+  const id = decodeURIComponent(hash.slice('#/orders/'.length));
+  const shortId = id.length > 12 ? id.slice(0, 8) : id;
+  await pickup.goto('/pvz/#/?point=' + encodeURIComponent(point));
+  await pickup.getByRole('link').filter({ hasText: shortId }).click();
+  await expect(pickup.getByRole('heading', { name: 'Операции ПВЗ' })).toBeVisible();
+}
+
+test('customer, pickup and seller sites share live stock and order status', async ({ page, context }) => {
+  const pickup = await context.newPage();
+  const seller = await context.newPage();
+  await Promise.all([page.goto('/'), pickup.goto('/pvz/'), seller.goto('/seller/')]);
   await expect(page).toHaveTitle('Wildberries Mesh');
-  await expect(page.getByText('API подключён')).toBeVisible();
+  await expect(pickup).toHaveTitle('Wildberries Mesh · ПВЗ');
+  await expect(seller).toHaveTitle('Wildberries Mesh · Продавец');
   const nav = page.getByRole('navigation', { name: 'Разделы проекта' });
-  await nav.getByRole('link', { name: 'ПВЗ', exact: true }).click();
-  const register = page.getByRole('button', { name: 'Зарегистрировать ПВЗ' });
+  const pickupNav = pickup.getByRole('navigation', { name: 'Разделы проекта' });
+  const sellerNav = seller.getByRole('navigation', { name: 'Разделы проекта' });
+  await expect(nav.getByRole('link')).toHaveText(['Оформление', 'Мои заказы']);
+  await expect(pickupNav.getByRole('link')).toHaveText(['ПВЗ', 'Для жюри']);
+  await expect(sellerNav.getByRole('link')).toHaveText(['Продавец']);
+  const buyerCatalog = page.getByRole('combobox', { name: 'Товар', exact: true });
+  await expect(buyerCatalog).toHaveText('Каталог пуст');
+  await seller.getByLabel('Код продавца').fill('seller-1');
+  await seller.getByRole('button', { name: 'Показать отчёт' }).click();
+  await expect(seller.getByText('Нет партий по выбранным фильтрам.')).toBeVisible();
+
+  const register = pickup.getByRole('button', { name: 'Зарегистрировать ПВЗ' });
   await register.click();
-  await expect(page.getByRole('dialog')).toBeVisible();
-  await page.keyboard.press('Escape');
+  await expect(pickup.getByRole('dialog')).toBeVisible();
+  await pickup.keyboard.press('Escape');
   await expect(register).toBeFocused();
-  await registerPoint(page, 'A', 'ПВЗ А');
-  await registerPoint(page, 'B', 'ПВЗ Б');
-  await page.getByLabel('Рабочая точка').selectOption('A');
-  await page.getByRole('button', { name: 'Принять партию' }).click();
-  const receipt = page.getByRole('dialog');
+  await registerPoint(pickup, 'A', 'ПВЗ А');
+  await registerPoint(pickup, 'B', 'ПВЗ Б');
+  await pickup.getByLabel('Рабочая точка').selectOption('A');
+  await pickup.getByRole('button', { name: 'Принять партию' }).click();
+  const receipt = pickup.getByRole('dialog');
   await receipt.getByLabel('Код партии').fill('lot-e2e');
   await receipt.getByLabel('Код товара (SKU)').fill('CABLE');
   await receipt.getByLabel('Код продавца').fill('seller-1');
@@ -50,40 +72,51 @@ test('Wildberries Mesh processes a live order and shows the economics', async ({
   await receipt.getByLabel('Объём единицы, см³').fill('100');
   await receipt.getByRole('button', { name: 'Принять партию' }).click();
   await expect(receipt).toBeHidden();
-  await expect(page.getByText('lot-e2e')).toBeVisible();
+  await expect(pickup.getByText('lot-e2e')).toBeVisible();
+  await seller.bringToFront();
+  await expect(seller.getByText('lot-e2e')).toBeVisible({ timeout: 10_000 });
+  await expect(seller.getByText('3 шт.', { exact: true }).first()).toBeVisible();
 
-  await nav.getByRole('link', { name: 'Оформление' }).click();
+  await page.bringToFront();
+  await expect(buyerCatalog).toHaveValue('CABLE', { timeout: 10_000 });
   await page.getByLabel('Пункт выдачи').selectOption('B');
   await page.getByRole('switch', { name: /WB Клуб/ }).check();
   await placeDelivery(page);
   await expect(page.getByText('Прямой рейс', { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Операции ПВЗ' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Код получения' })).toBeVisible();
   const scanCode = await page.locator('code').innerText();
-  await page.getByRole('button', { name: 'Собрать заказ', exact: true }).click();
-  const scan = page.getByRole('dialog');
+  await openPickupOrder(pickup, page, 'A');
+  await seller.bringToFront();
+  await expect(seller.getByText('2 шт.', { exact: true }).first()).toBeVisible({ timeout: 10_000 });
+  await pickup.getByRole('button', { name: 'Собрать заказ', exact: true }).click();
+  const scan = pickup.getByRole('dialog');
   await scan.getByLabel('Код заказа').fill('unknown');
   await scan.getByRole('button', { name: 'Подтвердить операцию' }).click();
   await expect(scan.getByRole('alert')).toContainText('Код посылки не соответствует заказу');
   await scan.getByLabel('Код заказа').fill(scanCode);
   await scan.getByRole('button', { name: 'Подтвердить операцию' }).click();
   await expect(scan).toBeHidden();
-  await perform(page, 'Передать курьеру', scanCode);
-  await page.getByLabel('Рабочая точка').selectOption('B');
-  await perform(page, 'Принять заказ', scanCode);
-  await perform(page, 'Выдать заказ', scanCode);
-  await expect(page.getByText('Выдан', { exact: true }).first()).toBeVisible();
-  await expect(page.getByText(/^45[\s\u00a0]*₽$/)).toBeVisible();
+  await perform(pickup, 'Передать курьеру', scanCode);
+  await pickup.getByLabel('Рабочая точка').selectOption('B');
+  await perform(pickup, 'Принять заказ', scanCode);
+  await perform(pickup, 'Выдать заказ', scanCode);
+  await expect(pickup.getByText(/^45[\s\u00a0]*₽$/)).toBeVisible();
+  await page.bringToFront();
+  await expect(page.getByText('Выдан', { exact: true }).first()).toBeVisible({ timeout: 10_000 });
+  await nav.getByRole('link', { name: 'Мои заказы' }).click();
+  await expect(page.getByRole('heading', { name: 'Мои заказы' })).toBeVisible();
+  await expect(page.getByText('Выдан', { exact: true })).toBeVisible();
 
-  await nav.getByRole('link', { name: 'ПВЗ', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Рабочее место ПВЗ' })).toBeVisible();
-  await page.getByLabel('Рабочая точка').selectOption('B');
-  await page.getByRole('button', { name: 'Начисления', exact: true }).click();
-  await expect(page.getByText('Прибыль ПВЗ', { exact: true })).toBeVisible();
-  await expect(page.getByText(/^10[\s\u00a0]*₽$/)).toBeVisible();
-  await nav.getByRole('link', { name: 'Продавец' }).click();
-  await page.getByLabel('Код продавца').fill('seller-1');
-  await page.getByRole('button', { name: 'Показать отчёт' }).click();
-  await expect(page.getByRole('columnheader', { name: 'Прибыль' })).toBeVisible();
-  await expect(page.getByText(/^107,5[\s\u00a0]*₽$/)).toBeVisible();
+  await pickupNav.getByRole('link', { name: 'ПВЗ', exact: true }).click();
+  await expect(pickup.getByRole('heading', { name: 'Рабочее место ПВЗ' })).toBeVisible();
+  await pickup.getByLabel('Рабочая точка').selectOption('B');
+  await pickup.getByRole('button', { name: 'Начисления', exact: true }).click();
+  await expect(pickup.getByText('Прибыль ПВЗ', { exact: true })).toBeVisible();
+  await expect(pickup.getByText(/^10[\s\u00a0]*₽$/)).toBeVisible();
+  await seller.bringToFront();
+  await expect(seller.getByRole('columnheader', { name: 'Прибыль' })).toBeVisible();
+  await expect(seller.getByText(/^107,5[\s\u00a0]*₽$/)).toBeVisible({ timeout: 10_000 });
 
   await nav.getByRole('link', { name: 'Оформление' }).click();
   await expect(page.getByRole('heading', { name: 'Оформление заказа' })).toBeVisible();
@@ -98,23 +131,25 @@ test('Wildberries Mesh processes a live order and shows the economics', async ({
   expect(await routeStops.evaluate(track => track.scrollWidth <= track.clientWidth)).toBe(true);
   await page.setViewportSize(desktopViewport);
   const hubCode = await page.locator('code').innerText();
-  await perform(page, 'Подтвердить доставку хаба', hubCode);
-  await perform(page, 'Выдать заказ', hubCode);
-  await perform(page, 'Принять возврат с браком', hubCode);
-  await expect(page.getByText('Возвращён', { exact: true }).first()).toBeVisible();
+  await openPickupOrder(pickup, page, 'B');
+  await perform(pickup, 'Подтвердить доставку хаба', hubCode);
+  await perform(pickup, 'Выдать заказ', hubCode);
+  await perform(pickup, 'Принять возврат с браком', hubCode);
+  await page.bringToFront();
+  await expect(page.getByText('Возвращён', { exact: true }).first()).toBeVisible({ timeout: 10_000 });
 
-  await nav.getByRole('link', { name: 'Для жюри' }).click();
-  await expect(page.getByText('Экономия 7,67%', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: '8 заказов' }).click();
-  await expect(page.getByText(/^185[\s\u00a0]*₽$/)).toBeVisible();
-  await page.getByRole('button', { name: '10 заказов' }).click();
-  await page.getByLabel('Дни хранения').fill('40');
-  await page.getByRole('button', { name: 'Пересчитать сценарий' }).click();
-  await expect(page.getByText(/^270[\s\u00a0]*₽$/)).toBeVisible();
+  await pickupNav.getByRole('link', { name: 'Для жюри' }).click();
+  await expect(pickup.getByText('Экономия 7,67%', { exact: true })).toBeVisible();
+  await pickup.getByRole('button', { name: '8 заказов' }).click();
+  await expect(pickup.getByText(/^185[\s\u00a0]*₽$/)).toBeVisible();
+  await pickup.getByRole('button', { name: '10 заказов' }).click();
+  await pickup.getByLabel('Дни хранения').fill('40');
+  await pickup.getByRole('button', { name: 'Пересчитать сценарий' }).click();
+  await expect(pickup.getByText(/^270[\s\u00a0]*₽$/)).toBeVisible();
 
-  await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByRole('heading', { name: 'Сравнение маршрутов' })).toBeVisible();
-  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await pickup.setViewportSize({ width: 390, height: 844 });
+  await expect(pickup.getByRole('heading', { name: 'Сравнение маршрутов' })).toBeVisible();
+  expect(await pickup.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 
   await nav.getByRole('link', { name: 'Оформление' }).click();
   await expect(page.getByRole('heading', { name: 'Оформление заказа' })).toBeVisible();

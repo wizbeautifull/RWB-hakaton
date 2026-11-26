@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { ArrowRight, CalendarDays, ChevronDown, MapPin, Minus, Package, Plus, ShoppingBag, Sparkles, Store, Truck } from 'lucide-react';
 import { api } from './api';
 import type { CheckoutDraft, CheckoutOptions, Order, Point, Product, Route } from './api';
+import { rememberCustomerOrder } from './customer-orders';
 import { demoOrder } from './demo';
 import { dateTime, fromMoscowInput, money, moscowInput, pointName, productName } from './format';
 import { ErrorMessage, Field, Heading, OrderSummary, RouteMap, field, useSubmit } from './ui';
@@ -61,6 +62,7 @@ export function Checkout({ mode, points, products }: { mode: Mode; points: Point
       } : {}),
     });
   }, placedOrder => {
+    rememberCustomerOrder(placedOrder.id);
     setOrder(placedOrder);
     setQuote(undefined);
     setSelectedId('');
@@ -158,7 +160,7 @@ export function Checkout({ mode, points, products }: { mode: Mode; points: Point
               {quoteRequest.pending ? 'Проверяем…' : quote ? 'Обновить варианты' : 'Показать варианты'}<ArrowRight size={19}/>
             </button>}
           {mode === 'demo' && <p className="checkout-total__note">Для оформления подключите FastAPI.</p>}
-          {mode === 'live' && (!points.length || !products.length) && <p className="checkout-total__note"><a href="#/pvz">Зарегистрируйте ПВЗ и примите партию</a>, чтобы оформить заказ.</p>}
+          {mode === 'live' && (!points.length || !products.length) && <p className="checkout-total__note">Товары появятся в каталоге после приёмки партии в ПВЗ.</p>}
         </div>
         {(order?.route || selection || sample) && <RouteMap route={order?.route ?? selection?.route ?? demoOrder.route} points={points} pickup={selectedPickup} sample={sample}/>}
       </aside>

@@ -15,7 +15,7 @@ export function Seller({ mode, points }: { mode: Mode; points: Point[] }) {
   const report = useResource<[Stock[], SellerMargin[]]>(() => mode === 'live' && seller
     ? Promise.all([api.inventory(filter), api.sellerMargin(seller, point)])
     : Promise.resolve([demoStock.filter(item => mode === 'demo' && item.seller_id === seller
-      && (!point || item.point_id === point)), []]), JSON.stringify([mode, seller, point]));
+      && (!point || item.point_id === point)), []]), JSON.stringify([mode, seller, point]), mode === 'live' && !!seller);
   const [rows = [], orderMargins = []] = report.data ?? [];
   return <>
     <Heading crumb="Продавец" title="Кабинет продавца" description="Остатки, срок хранения и расчёт прибыли по заказам."/>
@@ -39,7 +39,7 @@ export function Seller({ mode, points }: { mode: Mode; points: Point[] }) {
           <thead><tr>{['Заказ', 'ПВЗ', 'Выручка', 'Товар', 'Комиссия', 'Доставка', 'Хранение', 'Возврат', 'Прибыль'].map(name =>
             <th scope="col" key={name}>{name}</th>)}</tr></thead>
           <tbody>{orderMargins.map(row => <tr key={row.order_id}>
-            <td><a className="text-link" href={'#/orders/' + encodeURIComponent(row.order_id)}>{shortId(row.order_id)}</a>
+            <td><strong>{shortId(row.order_id)}</strong>
               <small>{productName(row.sku)} · {statusNames[row.status] ?? row.status}</small></td>
             <td>{pointName(points, row.point_id)}</td><td>{money(row.revenue_kopecks)}</td><td>{money(row.goods_kopecks)}</td>
             <td>{money(row.commission_kopecks)}</td><td>{money(row.logistics_kopecks)}</td><td>{money(row.storage_kopecks)}</td>
@@ -80,7 +80,7 @@ export function Jury({ mode, points, initialOrder }: { mode: Mode; points: Point
   const [assumptions, setAssumptions] = useState({ days: '', returns: '' });
   const [orderId, setOrderId] = useState(initialOrder);
   const [expanded, setExpanded] = useState(false);
-  const orders = useResource(() => mode === 'live' ? api.orders() : Promise.resolve([demoOrder]), mode);
+  const orders = useResource(() => mode === 'live' ? api.orders() : Promise.resolve([demoOrder]), mode, mode === 'live');
   const selected = orders.data?.find(order => order.id === orderId) ?? orders.data?.[0];
   const comparison = useResource(
     () => mode === 'live' ? api.comparison(load, assumptions.days, assumptions.returns) : Promise.resolve(null),

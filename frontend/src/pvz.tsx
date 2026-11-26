@@ -89,11 +89,12 @@ export function Pvz({ mode, points, initialPoint, reload }: { mode: Mode; points
   const filter = { point_id: point?.id ?? '', ...(orderFilter ? { order_id: orderFilter } : {}) };
   const id = point?.id;
   const key = mode + ':' + id + ':' + revision;
-  const queue = useResource(() => mode === 'live' && id ? api.orders(id, !all) : Promise.resolve(id === 'A' || (id === 'B' && all) ? [demoOrder] : []), key + all);
-  const stock = useResource(() => mode === 'live' && id ? api.inventory({ point_id: id }) : Promise.resolve(demoStock.filter(row => row.point_id === id)), key);
-  const ledger = useResource<[Ledger, Operation[], PointMargin | null]>(() => mode === 'live' && id
+  const live = mode === 'live' && !!id;
+  const queue = useResource(() => live ? api.orders(id, !all) : Promise.resolve(id === 'A' || (id === 'B' && all) ? [demoOrder] : []), key + all, live && tab === 'queue');
+  const stock = useResource(() => live ? api.inventory({ point_id: id }) : Promise.resolve(demoStock.filter(row => row.point_id === id)), key, live && tab === 'stock');
+  const ledger = useResource<[Ledger, Operation[], PointMargin | null]>(() => live
     ? Promise.all([api.accruals(filter), api.operations(filter), api.pointMargin(id, orderFilter)])
-    : Promise.resolve([{ items: [], total_kopecks: 0 }, [], null]), key + ':' + orderFilter);
+    : Promise.resolve([{ items: [], total_kopecks: 0 }, [], null]), key + ':' + orderFilter, live && tab === 'ledger');
   function changed(label: string) { setMessage(label); setModal(undefined); setRevision(value => value + 1); reload(); }
   const current = tab === 'queue' ? queue : tab === 'stock' ? stock : ledger;
   const [accruals, operations, margin] = ledger.data ?? [];
